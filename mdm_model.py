@@ -5,9 +5,13 @@ import tensorflow as tf
 import data_provider
 import utils
 
+from tensorflow.python.framework import ops as tfops
 from slim import ops
 from slim import scopes
 
+extract_patches_module = tf.load_op_library('/mnt/fu02/zqyu/tfop/extract_patches.so')
+extract_patches = extract_patches_module.extract_patches
+tfops.NotDifferentiable('ExtractPatches')
 def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
     def norm(x):
         return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
@@ -39,7 +43,8 @@ def conv_model(inputs, is_training=True, scope=''):
         crop_size = net['pool_2'].get_shape().as_list()[1:3]
         net['conv_2_cropped'] = utils.get_central_crop(net['conv_2'], box=crop_size)
 
-        net['concat'] = tf.concat(3, [net['conv_2_cropped'], net['pool_2']])
+        net['concat'] = tf.concat([net['conv_2_cropped'], net['pool_2']], 3)
+        print('CNN out shape:', net['concat'].shape)
   return net
 
 
@@ -52,7 +57,7 @@ def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26),
 
   for step in range(num_iterations):
       with tf.device('/cpu:0'):
-          patches = tf.image.extract_patches(images, tf.constant(patch_shape), inits+dx)
+          patches = extract_patches(images, tf.constant(patch_shape), inits+dx)
       patches = tf.reshape(patches, (batch_size * num_patches, patch_shape[0], patch_shape[1], num_channels))
       endpoints['patches'] = patches
 
@@ -63,7 +68,7 @@ def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26),
       ims = tf.reshape(ims, (batch_size, -1))
 
       with tf.variable_scope('rnn', reuse=step>0) as scope:
-          hidden_state = slim.ops.fc(tf.concat(1, [ims, hidden_state]), 512, activation=tf.tanh)
+          hidden_state = slim.ops.fc(tf.concat([ims, hidden_state], 1), 512, activation=tf.tanh)
           prediction = slim.ops.fc(hidden_state, num_patches * 2, scope='pred', activation=None)
           endpoints['prediction'] = prediction
       prediction = tf.reshape(prediction, (batch_size, num_patches, 2))

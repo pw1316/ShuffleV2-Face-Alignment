@@ -97,7 +97,7 @@ def synthesize_detection(pca_model, lms):
 
 def create_generator(shapes, detections):
     import menpo.io as mio
-    from menpo.landmark import LandmarkGroup
+    # from menpo.landmark import LandmarkGroup
     from menpo.model import PCAModel
 
     # normalize these to size [1, 1], centred on origin
@@ -112,7 +112,7 @@ def create_generator(shapes, detections):
 def load_n_create_generator(pattern, detector_name,
         group=None, overwrite=False):
     import menpo.io as mio
-    from menpo.landmark import LandmarkGroup
+    # from menpo.landmark import LandmarkGroup
     from menpo.model import PCAModel
     try:
         detector = _DETECTORS[detector_name]()

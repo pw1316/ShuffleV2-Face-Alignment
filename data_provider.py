@@ -62,7 +62,7 @@ def align_reference_shape(reference_shape, bb):
     min_x, min_y = min_xy[0], min_xy[1]
     max_x, max_y = max_xy[0], max_xy[1]
 
-    reference_shape_bb = tf.pack([[min_x, min_y], [max_x, min_y],
+    reference_shape_bb = tf.stack([[min_x, min_y], [max_x, min_y],
                                   [max_x, max_y], [min_x, max_y]])
 
     def norm(x):
@@ -147,7 +147,7 @@ def load_images(paths, group=None, verbose=True):
             print('Importing data from {}'.format(path))
 
         for im in mio.import_images(path, verbose=verbose, as_generator=True):
-            group = group or im.landmarks[group]._group_label
+            group = group or im.landmarks.group_labels[0]
 
             bb_root = im.path.parent.relative_to(im.path.parent.parent.parent)
             if 'set' not in str(bb_root):
