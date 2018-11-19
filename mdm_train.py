@@ -27,7 +27,7 @@ tf.app.flags.DEFINE_integer('num_preprocess_threads', 4,
 tf.app.flags.DEFINE_string('train_dir', 'ckpt/train',
                            """Directory where to write event logs """
                            """and checkpoint.""")
-tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', 'ckpt/train/model.ckpt-65950',
+tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
                            """If specified, restore this pretrained model """
                            """before beginning any training.""")
 tf.app.flags.DEFINE_integer('max_steps', 100000,
@@ -204,7 +204,7 @@ def train(scope=''):
         print('Initialized variables.')
 
         if FLAGS.pretrained_model_checkpoint_path:
-            # assert tf.gfile.Exists(FLAGS.pretrained_model_checkpoint_path)
+            assert tf.gfile.Exists(FLAGS.pretrained_model_checkpoint_path)
             variables_to_restore = tf.get_collection(
                 slim.variables.VARIABLES_TO_RESTORE)
             restorer = tf.train.Saver(variables_to_restore)
@@ -218,7 +218,7 @@ def train(scope=''):
         summary_writer = tf.summary.FileWriter(FLAGS.train_dir)
 
         print('Starting training...')
-        for step in range(65951, FLAGS.max_steps):
+        for step in range(FLAGS.max_steps):
             start_time = time.time()
             _, loss_value = sess.run([train_op, total_loss])
             duration = time.time() - start_time

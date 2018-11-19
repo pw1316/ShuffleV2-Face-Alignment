@@ -207,6 +207,9 @@ def load_image(path, reference_shape, is_training=False, group='PTS',
       estimate: an initial estimate a numpy array [68, 2].
       gt_truth: the ground truth landmarks, a numpy array [68, 2].
     """
+    if isinstance(path, bytes):
+        path = path.decode('utf-8')
+    assert(isinstance(path, str))
     im = mio.import_image(path)
     bb_root = im.path.parent.relative_to(im.path.parent.parent.parent)
     if 'set' not in str(bb_root):
@@ -298,8 +301,7 @@ def batch_inputs(paths,
       lms_init: a tf tensor of shape [batch_size, 68, 2].
     """
 
-    files = tf.concat(0, [map(str, sorted(Path(d).parent.glob(Path(d).name)))
-                          for d in paths])
+    files = tf.concat([list(map(str, sorted(Path(d).parent.glob(Path(d).name)))) for d in paths], 0)
 
     filename_queue = tf.train.string_input_producer(files,
                                                     shuffle=is_training,

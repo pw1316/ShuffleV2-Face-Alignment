@@ -14,12 +14,15 @@ import matplotlib
 import mdm_model
 import mdm_train
 import numpy as np
+import os
 import os.path
 import tensorflow as tf
 import time
 import utils
 import slim
 import menpo.io as mio
+
+os.environ['CUDA_VISIBLE_DEVICES']='2, 3'
 
 # Do not use a gui toolkit for matlotlib.
 matplotlib.use('Agg')
@@ -35,13 +38,13 @@ tf.app.flags.DEFINE_string('checkpoint_dir', 'ckpt/train/',
 tf.app.flags.DEFINE_integer('eval_interval_secs', 60 * 5,
                             """How often to run the eval.""")
 
-tf.app.flags.DEFINE_boolean('run_once', False,
+tf.app.flags.DEFINE_boolean('run_once', True,
                             """Whether to run eval only once.""")
 
 # Flags governing the data used for the eval.
 tf.app.flags.DEFINE_integer('num_examples', 224,
                             """Number of examples to run.""")
-tf.app.flags.DEFINE_string('dataset_path', 'lfpw/testset/*.png',
+tf.app.flags.DEFINE_string('dataset_path', '300w/*.png',
                            """The dataset path to evaluate.""")
 tf.app.flags.DEFINE_string('device', '/cpu:0', 'the device to eval on.')
 
@@ -74,16 +77,19 @@ def _eval_once(saver, summary_writer, rmse_op, summary_op):
     rmse_op: rmse_op.
     summary_op: Summary op.
   """
-  with tf.Session() as sess:
+  config = tf.ConfigProto(allow_soft_placement=True)
+  config.gpu_options.allow_growth=True
+  with tf.Session(config=config) as sess:
     ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
     if ckpt and ckpt.model_checkpoint_path:
       if os.path.isabs(ckpt.model_checkpoint_path):
         # Restores from checkpoint with absolute path.
         saver.restore(sess, ckpt.model_checkpoint_path)
       else:
+        saver.restore(sess, ckpt.model_checkpoint_path)
         # Restores from checkpoint with relative path.
-        saver.restore(sess, os.path.join(FLAGS.checkpoint_dir,
-                                         ckpt.model_checkpoint_path))
+        #saver.restore(sess, os.path.join(FLAGS.checkpoint_dir,
+        #                                 ckpt.model_checkpoint_path))
 
       # Assuming model_checkpoint_path looks something like:
       #   /my-favorite-path/imagenet_train/model.ckpt-0,
@@ -130,7 +136,7 @@ def _eval_once(saver, summary_writer, rmse_op, summary_op):
       auc_at_08 = (errors < .08).mean()
       auc_at_05 = (errors < .05).mean()
       ced_image = plot_ced([errors.tolist()])
-      ced_plot = sess.run(tf.merge_summary([tf.image_summary('ced_plot', ced_image[None, ...])]))
+      ced_plot = sess.run(tf.summary.merge([tf.summary.image('ced_plot', ced_image[None, ...])]))
 
       print('Errors', errors.shape)
       print('%s: mean_rmse = %.4f, auc @ 0.05 = %.4f, auc @ 0.08 = %.4f [%d examples]' %
@@ -194,8 +200,8 @@ def evaluate(dataset_path):
             [images, gt_truth], [tf.float32])
 
     summaries = []
-    summaries.append(tf.image_summary('images',
-        tf.concat(2, [gt_images, pred_images]), max_images=5))
+    summaries.append(tf.summary.image('images',
+        tf.concat([gt_images, pred_images], 2), max_outputs=5))
     
     avg_pred = pred + tf.py_func(flip_predictions, (pred_mirrored, shapes), (tf.float32, ))[0]
     avg_pred /= 2.
@@ -210,10 +216,10 @@ def evaluate(dataset_path):
     saver = tf.train.Saver(variables_to_restore)
 
     # Build the summary operation based on the TF collection of Summaries.
-    summary_op = tf.merge_summary(summaries)
+    summary_op = tf.summary.merge(summaries)
 
     graph_def = tf.get_default_graph().as_graph_def()
-    summary_writer = tf.train.SummaryWriter(FLAGS.eval_dir,
+    summary_writer = tf.summary.FileWriter(FLAGS.eval_dir,
                                             graph_def=graph_def)
 
     while True:
