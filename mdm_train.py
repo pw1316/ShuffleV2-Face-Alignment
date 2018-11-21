@@ -11,33 +11,30 @@ import utils
 import menpo
 import menpo.io as mio
 
-os.environ['CUDA_VISIBLE_DEVICES']='2, 3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2, 3'
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_float('initial_learning_rate', 0.001,
-                          """Initial learning rate.""")
-tf.app.flags.DEFINE_float('num_epochs_per_decay', 5.0,
-                          """Epochs after which learning rate decays.""")
-tf.app.flags.DEFINE_float('learning_rate_decay_factor', 0.1,
-                          """Learning rate decay factor.""")
+tf.app.flags.DEFINE_float('lr', 0.001, """Initial learning rate.""")
+tf.app.flags.DEFINE_float('lr_decay_steps', 15000, """Learning rate decay steps.""")
+tf.app.flags.DEFINE_float('lr_decay_rate', 0.1, """Learning rate decay rate.""")
 tf.app.flags.DEFINE_integer('batch_size', 60, """The batch size to use.""")
-tf.app.flags.DEFINE_integer('num_preprocess_threads', 4,
-                            """How many preprocess threads to use.""")
-tf.app.flags.DEFINE_string('train_dir', 'ckpt/train',
-                           """Directory where to write event logs """
-                           """and checkpoint.""")
-tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
-                           """If specified, restore this pretrained model """
-                           """before beginning any training.""")
-tf.app.flags.DEFINE_integer('max_steps', 100000,
-                            """Number of batches to run.""")
+tf.app.flags.DEFINE_integer('num_threads', 4, """How many pre-process threads to use.""")
+tf.app.flags.DEFINE_string('train_dir', 'ckpt/train', """Log out directory.""")
+tf.app.flags.DEFINE_string('pre_trained_dir', '', """Restore pre-trained model.""")
+tf.app.flags.DEFINE_integer('max_steps', 100000, """Number of batches to run.""")
 tf.app.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
-tf.app.flags.DEFINE_string('datasets', ':'.join(
-    ('Dataset/LFPW/trainset/Images/*.png', 'Dataset/AFW/Images/*.jpg',
-     'Dataset/HELEN/trainset/Images/*.jpg')),
-                           """Directory where to write event logs """
-                           """and checkpoint.""")
+tf.app.flags.DEFINE_string(
+    'datasets',
+    ':'.join(
+        ('Dataset/LFPW/trainset/Images/*.png',
+         'Dataset/AFW/Images/*.jpg',
+         'Dataset/HELEN/trainset/Images/*.jpg'
+         )
+    ),
+    """Directory where to write event logs and checkpoint."""
+)
 tf.app.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
+
 # The decay to use for the moving average.
 MOVING_AVERAGE_DECAY = 0.9999
 
@@ -45,67 +42,55 @@ MOVING_AVERAGE_DECAY = 0.9999
 def train(scope=''):
     """Train on dataset for a number of steps."""
     with tf.Graph().as_default(), tf.device('/gpu:0'):
-        # Create a variable to count the number of train() calls. This equals the
-        # number of batches processed * FLAGS.num_gpus.
-        global_step = tf.get_variable('global_step', [],
-                                      initializer=tf.constant_initializer(0),
-                                      trainable=False)
+        # Global steps
+        tf_global_step = tf.get_variable(
+            'global_step', [],
+            initializer=tf.constant_initializer(0),
+            trainable=False
+        )
 
         train_dirs = FLAGS.datasets.split(':')
 
-        # Calculate the learning rate schedule.
-        decay_steps = 15000
-
         # Decay the learning rate exponentially based on the number of steps.
-        lr = tf.train.exponential_decay(FLAGS.initial_learning_rate,
-                                        global_step,
-                                        decay_steps,
-                                        FLAGS.learning_rate_decay_factor,
-                                        staircase=True)
+        tf_lr = tf.train.exponential_decay(
+            FLAGS.lr,
+            tf_global_step,
+            FLAGS.lr_decay_steps,
+            FLAGS.lr_decay_rate,
+            staircase=True,
+            name='learning_rate'
+        )
 
         # Create an optimizer that performs gradient descent.
-        opt = tf.train.AdamOptimizer(lr)
+        opt = tf.train.AdamOptimizer(tf_lr)
 
-        # Override the number of preprocessing threads to account for the increased
-        # number of GPU towers.
-        num_preprocess_threads = FLAGS.num_preprocess_threads
-
-        _images, _shapes, _reference_shape, pca_model = \
+        _images, _shapes, _mean_shape, _pca_model = \
             data_provider.load_images(train_dirs, verbose=True)
 
-        reference_shape = tf.constant(_reference_shape,
-                                      dtype=tf.float32,
-                                      name='reference_shape')
-
-        image_shape = _images[0].shape
-        lms_shape = _shapes[0].points.shape
+        tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='mean_shape')
 
         def get_random_sample(rotation_stddev=10):
-            idx = np.random.randint(low=0, high=len(_images))
-            im = menpo.image.Image(_images[idx].transpose(2, 0, 1), copy=False)
-            lms = _shapes[idx]
-            im.landmarks['PTS'] = lms
-
+            random_idx = np.random.randint(low=0, high=len(_images))
+            im = menpo.image.Image(_images[random_idx].transpose(2, 0, 1), copy=False)
+            random_shape = _shapes[random_idx]
+            im.landmarks['PTS'] = random_shape
             if np.random.rand() < .5:
-               im = utils.mirror_image(im)
-
+                im = utils.mirror_image(im)
             if np.random.rand() < .5:
-              theta = np.random.normal(scale=rotation_stddev)
-              rot = menpo.transform.rotate_ccw_about_centre(lms, theta)
-              im = im.warp_to_shape(im.shape, rot)
+                theta = np.random.normal(scale=rotation_stddev)
+                rot = menpo.transform.rotate_ccw_about_centre(random_shape, theta)
+                im = im.warp_to_shape(im.shape, rot)
 
-            pixels = im.pixels.transpose(1, 2, 0).astype('float32')
-            shape = im.landmarks['PTS'].lms.points.astype('float32')
-            return pixels, shape
+            random_image = im.pixels.transpose(1, 2, 0).astype('float32')
+            random_shape = im.landmarks['PTS'].points.astype('float32')
+            return random_image, random_shape
 
-        image, shape = tf.py_func(get_random_sample, [],
-                                  [tf.float32, tf.float32], stateful=True)
+        image, shape = tf.py_func(get_random_sample, [], [tf.float32, tf.float32], stateful=True)
 
-        initial_shape = data_provider.random_shape(shape, reference_shape,
-                                                   pca_model)
-        image.set_shape(image_shape)
-        shape.set_shape(lms_shape)
-        initial_shape.set_shape(lms_shape)
+        initial_shape = data_provider.random_shape(shape, tf_mean_shape, _pca_model)
+        image.set_shape(_images[0].shape)
+        shape.set_shape(_shapes[0].points.shape)
+        initial_shape.set_shape(_shapes[0].points.shape)
 
         image = data_provider.distort_color(image)
 
@@ -114,7 +99,7 @@ def train(scope=''):
                                             dynamic_pad=False,
                                             capacity=5000,
                                             enqueue_many=False,
-                                            num_threads=num_preprocess_threads,
+                                            num_threads=FLAGS.num_threads,
                                             name='batch')
         print('Defining model...')
         with tf.device(FLAGS.train_device):
@@ -152,7 +137,7 @@ def train(scope=''):
                                               scope)
 
         # Add a summary to track the learning rate.
-        summaries.append(tf.summary.scalar('learning_rate', lr))
+        summaries.append(tf.summary.scalar('learning_rate', tf_lr))
 
         # Add histograms for gradients.
         for grad, var in grads:
@@ -161,7 +146,7 @@ def train(scope=''):
                                                       '/gradients', grad))
 
         # Apply the gradients to adjust the shared variables.
-        apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+        apply_gradient_op = opt.apply_gradients(grads, global_step=tf_global_step)
 
         # Add histograms for trainable variables.
         for var in tf.trainable_variables():
@@ -172,7 +157,7 @@ def train(scope=''):
         # global statistics. This is more complicated then need be but we employ
         # this for backward-compatibility with our previous models.
         variable_averages = tf.train.ExponentialMovingAverage(
-            MOVING_AVERAGE_DECAY, global_step)
+            MOVING_AVERAGE_DECAY, tf_global_step)
 
         # Another possibility is to use tf.slim.get_variables().
         variables_to_average = (
@@ -202,14 +187,14 @@ def train(scope=''):
         sess.run(init)
         print('Initialized variables.')
 
-        if FLAGS.pretrained_model_checkpoint_path:
-            assert tf.gfile.Exists(FLAGS.pretrained_model_checkpoint_path)
+        if FLAGS.pre_trained_dir:
+            assert tf.gfile.Exists(FLAGS.pre_trained_dir)
             variables_to_restore = tf.get_collection(
                 slim.variables.VARIABLES_TO_RESTORE)
             restorer = tf.train.Saver(variables_to_restore)
-            restorer.restore(sess, FLAGS.pretrained_model_checkpoint_path)
+            restorer.restore(sess, FLAGS.pre_trained_dir)
             print('%s: Pre-trained model restored from %s' %
-                  (datetime.now(), FLAGS.pretrained_model_checkpoint_path))
+                  (datetime.now(), FLAGS.pre_trained_dir))
 
         # Start the queue runners.
         tf.train.start_queue_runners(sess=sess)

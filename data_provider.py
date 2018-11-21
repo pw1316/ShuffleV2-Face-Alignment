@@ -16,6 +16,7 @@ import utils
 
 FLAGS = tf.app.flags.FLAGS
 
+
 def build_reference_shape(paths, diagonal=200):
     """Builds the reference shape.
 
@@ -29,9 +30,9 @@ def build_reference_shape(paths, diagonal=200):
     for path in paths:
         path = Path(path).parent.as_posix()
         landmarks += [
-            group.lms
+            group
             for group in mio.import_landmark_files(path, verbose=True)
-            if group.lms.n_points == 68
+            if group.n_points == 68
         ]
 
     return compute_reference_shape(landmarks,
@@ -126,7 +127,6 @@ def load_images(paths, group=None, verbose=True):
 
     Args:
       paths: a list of strings containing the data directories.
-      reference_shape: a numpy array [num_landmarks, 2]
       group: landmark group containing the grounth truth landmarks.
       verbose: boolean, print debugging info.
     Returns:
@@ -159,8 +159,8 @@ def load_images(paths, group=None, verbose=True):
             im = im.rescale_to_pointcloud(reference_shape, group=group)
             im = grey_to_rgb(im)
             images.append(im.pixels.transpose(1, 2, 0))
-            shapes.append(im.landmarks[group].lms)
-            bbs.append(im.landmarks['bb'].lms)
+            shapes.append(im.landmarks[group])
+            bbs.append(im.landmarks['bb'])
 
     train_dir = Path(FLAGS.train_dir)
     mio.export_pickle(reference_shape.points, train_dir / 'reference_shape.pkl', overwrite=True)
@@ -182,8 +182,6 @@ def load_images(paths, group=None, verbose=True):
         pts = lms.points
         pts[:, 0] += dy
         pts[:, 1] += dx
-
-        lms = lms.from_vector(pts)
         padded_images[i, dy:(height+dy), dx:(width+dx)] = im
 
     return padded_images, shapes, reference_shape.points, pca_model
@@ -251,6 +249,7 @@ def distort_color(image, thread_id=0, stddev=0.1, scope=None):
     Args:
       image: Tensor containing single image.
       thread_id: preprocessing thread ID.
+      stddev: gaussian noise dev
       scope: Optional scope for op_scope.
     Returns:
       color-distorted image
@@ -293,7 +292,7 @@ def batch_inputs(paths,
         the corresponding landmark files.
       reference_shape: a numpy array [num_landmarks, 2]
       batch_size: the batch size.
-      is_traininig: whether in training mode.
+      is_training: whether in training mode.
       num_landmarks: the number of landmarks in the training images.
       mirror_image: mirrors the image and landmarks horizontally.
     Returns:
@@ -313,8 +312,8 @@ def batch_inputs(paths,
     image, lms, lms_init = tf.py_func(
         partial(load_image, is_training=is_training,
                 mirror_image=mirror_image),
-        [filename, reference_shape], # input arguments
-        [tf.float32, tf.float32, tf.float32], # output types
+        [filename, reference_shape],  # input arguments
+        [tf.float32, tf.float32, tf.float32],  # output types
         name='load_image'
     )
 
