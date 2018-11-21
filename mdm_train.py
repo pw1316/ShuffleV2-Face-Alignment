@@ -33,8 +33,8 @@ tf.app.flags.DEFINE_integer('max_steps', 100000,
                             """Number of batches to run.""")
 tf.app.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
 tf.app.flags.DEFINE_string('datasets', ':'.join(
-    ('databases/lfpw/trainset/*.png', 'databases/afw/*.jpg',
-     'databases/helen/trainset/*.jpg')),
+    ('Dataset/LFPW/trainset/Images/*.png', 'Dataset/AFW/Images/*.jpg',
+     'Dataset/HELEN/trainset/Images/*.jpg')),
                            """Directory where to write event logs """
                            """and checkpoint.""")
 tf.app.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')

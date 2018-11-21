@@ -9,7 +9,7 @@ from tensorflow.python.framework import ops as tfops
 from slim import ops
 from slim import scopes
 
-extract_patches_module = tf.load_op_library('/mnt/fu02/zqyu/tfop/extract_patches.so')
+extract_patches_module = tf.load_op_library('extract_patches_op/extract_patches.so')
 extract_patches = extract_patches_module.extract_patches
 tfops.NotDifferentiable('ExtractPatches')
 def align_reference_shape(reference_shape, reference_shape_bb, im, bb):

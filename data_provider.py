@@ -148,11 +148,13 @@ def load_images(paths, group=None, verbose=True):
         for im in mio.import_images(path, verbose=verbose, as_generator=True):
             group = group or im.landmarks.group_labels[0]
 
-            bb_root = im.path.parent.relative_to(im.path.parent.parent.parent)
-            if 'set' not in str(bb_root):
-                bb_root = im.path.parent.relative_to(im.path.parent.parent)
-            im.landmarks['bb'] = mio.import_landmark_file(str(Path(
-                'bbs') / bb_root / (im.path.stem + '.pts')))
+            bb_root = im.path.parent.parent
+            try:
+                lms = mio.import_landmark_file(str(Path(bb_root / 'BoundingBoxes' / (im.path.stem + '.pts'))))
+            except ValueError:
+                print('skip')
+                continue
+            im.landmarks['bb'] = lms
             im = im.crop_to_landmarks_proportion(0.3, group='bb')
             im = im.rescale_to_pointcloud(reference_shape, group=group)
             im = grey_to_rgb(im)
