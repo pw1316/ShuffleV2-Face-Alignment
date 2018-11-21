@@ -6,7 +6,6 @@ from menpofit.fitter import (noisy_shape_from_bounding_box,
                              align_shape_with_bounding_box)
 from pathlib import Path
 
-import joblib
 import menpo.feature
 import menpo.image
 import menpo.io as mio

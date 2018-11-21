@@ -92,3 +92,4 @@ ckpt/
 .idea/
 .vscode/
 Dataset/
+extract_patches_op/*.so
