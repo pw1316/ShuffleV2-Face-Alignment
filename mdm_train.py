@@ -225,7 +225,7 @@ def train(scope=''):
 
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
 
-            if step % 10 == 0:
+            if step % 100 == 0:
                 examples_per_sec = FLAGS.batch_size / float(duration)
                 format_str = (
                     '%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
@@ -233,7 +233,7 @@ def train(scope=''):
                 print(format_str % (datetime.now(), step, loss_value,
                                     examples_per_sec, duration))
 
-            if step % 20 == 0:
+            if step % 200 == 0:
                 summary_str = sess.run(summary_op)
                 summary_writer.add_summary(summary_str, step)
 

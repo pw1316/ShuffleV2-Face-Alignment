@@ -22,7 +22,7 @@ import utils
 import slim
 import menpo.io as mio
 
-os.environ['CUDA_VISIBLE_DEVICES']='2, 3'
+os.environ['CUDA_VISIBLE_DEVICES']='2, 3'  
 
 # Do not use a gui toolkit for matlotlib.
 matplotlib.use('Agg')
@@ -42,7 +42,7 @@ tf.app.flags.DEFINE_boolean('run_once', True,
                             """Whether to run eval only once.""")
 
 # Flags governing the data used for the eval.
-tf.app.flags.DEFINE_integer('num_examples', 224,
+tf.app.flags.DEFINE_integer('num_examples', 600,
                             """Number of examples to run.""")
 tf.app.flags.DEFINE_string('dataset_path', '300w/*.png',
                            """The dataset path to evaluate.""")
@@ -201,7 +201,7 @@ def evaluate(dataset_path):
 
     summaries = []
     summaries.append(tf.summary.image('images',
-        tf.concat([gt_images, pred_images], 2), max_outputs=5))
+        tf.concat([gt_images, pred_images], 2), max_outputs=60))
     
     avg_pred = pred + tf.py_func(flip_predictions, (pred_mirrored, shapes), (tf.float32, ))[0]
     avg_pred /= 2.
