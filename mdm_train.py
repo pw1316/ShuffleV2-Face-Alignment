@@ -33,6 +33,7 @@ tf.app.flags.DEFINE_string(
     ),
     """Directory where to write event logs and checkpoint."""
 )
+tf.app.flags.DEFINE_integer('num_patches', 68, 'Landmark number')
 tf.app.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
 
 # The decay to use for the moving average.
@@ -66,6 +67,8 @@ def train(scope=''):
 
         _images, _shapes, _mean_shape, _pca_model = \
             data_provider.load_images(train_dirs, verbose=True)
+        assert(_shapes[0].points.shape[0] == FLAGS.num_patches)
+        assert(_mean_shape.shape[0] == FLAGS.num_patches)
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='mean_shape')
 
@@ -85,72 +88,82 @@ def train(scope=''):
             random_shape = im.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
-        image, shape = tf.py_func(get_random_sample, [], [tf.float32, tf.float32], stateful=True)
+        tf_image, tf_shape = tf.py_func(get_random_sample, [], [tf.float32, tf.float32], stateful=True)
+        tf_initial_shape = data_provider.random_shape(tf_shape, tf_mean_shape, _pca_model)
+        tf_image.set_shape(_images[0].shape)
+        tf_shape.set_shape(_shapes[0].points.shape)
+        tf_initial_shape.set_shape(_shapes[0].points.shape)
+        tf_image = data_provider.distort_color(tf_image)
 
-        initial_shape = data_provider.random_shape(shape, tf_mean_shape, _pca_model)
-        image.set_shape(_images[0].shape)
-        shape.set_shape(_shapes[0].points.shape)
-        initial_shape.set_shape(_shapes[0].points.shape)
+        tf_images, tf_shapes, tf_initial_shapes = tf.train.batch(
+            [tf_image, tf_shape, tf_initial_shape],
+            FLAGS.batch_size,
+            dynamic_pad=False,
+            capacity=5000,
+            enqueue_many=False,
+            num_threads=FLAGS.num_threads,
+            name='batch'
+        )
 
-        image = data_provider.distort_color(image)
-
-        images, lms, inits = tf.train.batch([image, shape, initial_shape],
-                                            FLAGS.batch_size,
-                                            dynamic_pad=False,
-                                            capacity=5000,
-                                            enqueue_many=False,
-                                            num_threads=FLAGS.num_threads,
-                                            name='batch')
         print('Defining model...')
         with tf.device(FLAGS.train_device):
             # Retain the summaries from the final tower.
-            summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
-            predictions, dxs, _ = mdm_model.model(images, inits, patch_shape=(FLAGS.patch_size, FLAGS.patch_size))
+            tf_summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
+            tf_preds, tf_deltas, _ = mdm_model.model(
+                tf_images,
+                tf_initial_shapes,
+                num_iterations=4,
+                num_patches=FLAGS.num_patches,
+                patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
+            )  # TODO model
 
-            total_loss = 0
+            tf_total_loss = 0
 
-            for i, dx in enumerate(dxs):
-                norm_error = mdm_model.normalized_rmse(dx + inits, lms)
-                tf.summary.histogram('errors', norm_error)
-                loss = tf.reduce_mean(norm_error)
-                total_loss += loss
-                summaries.append(tf.summary.scalar('losses/step_{}'.format(i),
-                                                   loss))
+            for i, tf_dx in enumerate(tf_deltas):
+                tf_norm_error = mdm_model.normalized_rmse(
+                    tf_dx + tf_initial_shapes,
+                    tf_shapes,
+                    num_patches=FLAGS.num_patches
+                )
+                tf.summary.histogram('errors', tf_norm_error)
+                tf_loss = tf.reduce_mean(tf_norm_error)
+                tf_total_loss += tf_loss
+                tf_summaries.append(tf.summary.scalar('losses/step_{}'.format(i), tf_loss))
 
             # Calculate the gradients for the batch of data
-            grads = opt.compute_gradients(total_loss)
+            tf_grads = opt.compute_gradients(tf_total_loss)
 
-        summaries.append(tf.summary.scalar('losses/total', total_loss))
+        tf_summaries.append(tf.summary.scalar('losses/total', tf_total_loss))
         pred_images, = tf.py_func(utils.batch_draw_landmarks,
-                                  [images, predictions], [tf.float32])
-        gt_images, = tf.py_func(utils.batch_draw_landmarks, [images, lms],
+                                  [tf_images, tf_preds], [tf.float32])
+        gt_images, = tf.py_func(utils.batch_draw_landmarks, [tf_images, tf_shapes],
                                 [tf.float32])
 
         summary = tf.summary.image('images',
                                    tf.concat([gt_images, pred_images], 2),
                                    max_outputs=5)
-        summaries.append(tf.summary.histogram('dx', predictions - inits))
+        tf_summaries.append(tf.summary.histogram('dx', tf_preds - tf_initial_shapes))
 
-        summaries.append(summary)
+        tf_summaries.append(summary)
 
         batchnorm_updates = tf.get_collection(slim.ops.UPDATE_OPS_COLLECTION,
                                               scope)
 
         # Add a summary to track the learning rate.
-        summaries.append(tf.summary.scalar('learning_rate', tf_lr))
+        tf_summaries.append(tf.summary.scalar('learning_rate', tf_lr))
 
         # Add histograms for gradients.
-        for grad, var in grads:
+        for grad, var in tf_grads:
             if grad is not None:
-                summaries.append(tf.summary.histogram(var.op.name +
+                tf_summaries.append(tf.summary.histogram(var.op.name +
                                                       '/gradients', grad))
 
         # Apply the gradients to adjust the shared variables.
-        apply_gradient_op = opt.apply_gradients(grads, global_step=tf_global_step)
+        apply_gradient_op = opt.apply_gradients(tf_grads, global_step=tf_global_step)
 
         # Add histograms for trainable variables.
         for var in tf.trainable_variables():
-            summaries.append(tf.summary.histogram(var.op.name, var))
+            tf_summaries.append(tf.summary.histogram(var.op.name, var))
 
         # Track the moving averages of all trainable variables.
         # Note that we maintain a "double-average" of the BatchNormalization
@@ -174,7 +187,7 @@ def train(scope=''):
         saver = tf.train.Saver(tf.all_variables())
 
         # Build the summary operation from the last tower summaries.
-        summary_op = tf.summary.merge(summaries)
+        summary_op = tf.summary.merge(tf_summaries)
         # Start running operations on the Graph. allow_soft_placement must be
         # set to True to build towers on GPU, as some of the ops do not have GPU
         # implementations.
@@ -204,7 +217,7 @@ def train(scope=''):
         print('Starting training...')
         for step in range(FLAGS.max_steps):
             start_time = time.time()
-            _, loss_value = sess.run([train_op, total_loss])
+            _, loss_value = sess.run([train_op, tf_total_loss])
             duration = time.time() - start_time
 
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'

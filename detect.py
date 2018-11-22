@@ -87,7 +87,7 @@ def synthesize_detection(pca_model, lms):
 
     Args:
       pca_model: A menpo PCAModel instance.
-      lms: A menpo image.
+      lms: Bounding box's points.
     Returns:
       A
     """

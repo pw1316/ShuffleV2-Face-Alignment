@@ -12,6 +12,8 @@ from slim import scopes
 extract_patches_module = tf.load_op_library('extract_patches_op/extract_patches.so')
 extract_patches = extract_patches_module.extract_patches
 tfops.NotDifferentiable('ExtractPatches')
+
+
 def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
     def norm(x):
         return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
@@ -21,10 +23,12 @@ def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
     new_size = tf.to_int32(tf.to_float(tf.shape(im)[:2]) / ratio)
     return tf.image.resize_bilinear(tf.expand_dims(im, 0), new_size)[0, :, :, :], align_mean_shape / ratio, ratio
 
-def normalized_rmse(pred, gt_truth):
-    norm = tf.sqrt(tf.reduce_sum(((gt_truth[:, 36, :] - gt_truth[:, 45, :])**2), 1))
 
-    return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * 68)
+def normalized_rmse(pred, gt_truth, num_patches=68):
+    l, r = utils.norm_idx(num_patches)
+    assert(l is not None and r is not None)
+    norm = tf.sqrt(tf.reduce_sum(((gt_truth[:, l, :] - gt_truth[:, r, :])**2), 1))
+    return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * num_patches)
 
 
 def conv_model(inputs, is_training=True, scope=''):

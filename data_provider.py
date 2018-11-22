@@ -32,7 +32,7 @@ def build_reference_shape(paths, diagonal=200):
         landmarks += [
             group
             for group in mio.import_landmark_files(path, verbose=True)
-            if group.n_points == 68
+            if group.n_points == FLAGS.num_patches
         ]
 
     return compute_reference_shape(landmarks,
@@ -75,12 +75,12 @@ def align_reference_shape(reference_shape, bb):
         name='initial_shape')
 
 
-def random_shape(gts, reference_shape, pca_model):
+def random_shape(tf_shape, tf_mean_shape, pca_model):
     """Generates a new shape estimate given the ground truth shape.
 
     Args:
-      gts: a numpy array [num_landmarks, 2]
-      reference_shape: a Tensor of dimensions [num_landmarks, 2]
+      tf_shape: a numpy array [num_landmarks, 2]
+      tf_mean_shape: a Tensor of dimensions [num_landmarks, 2]
       pca_model: A PCAModel that generates shapes.
     Returns:
       The aligned shape, as a Tensor [num_landmarks, 2].
@@ -90,11 +90,10 @@ def random_shape(gts, reference_shape, pca_model):
         return detect.synthesize_detection(pca_model, menpo.shape.PointCloud(
             lms).bounding_box()).points.astype(np.float32)
 
-    bb, = tf.py_func(synthesize, [gts], [tf.float32])
-    shape = align_reference_shape(reference_shape, bb)
-    shape.set_shape(reference_shape.get_shape())
-
-    return shape
+    tf_random_bb, = tf.py_func(synthesize, [tf_shape], [tf.float32])  # Random bb for shape
+    tf_random_shape = align_reference_shape(tf_mean_shape, tf_random_bb)  # align mean shape to bb
+    tf_random_shape.set_shape(tf_mean_shape.get_shape())
+    return tf_random_shape
 
 
 def get_noisy_init_from_bb(reference_shape, bb, noise_percentage=.02):
@@ -154,6 +153,7 @@ def load_images(paths, group=None, verbose=True):
             except ValueError:
                 print('skip')
                 continue
+            assert(lms.points.shape[0] == reference_shape.points.shape[0])
             im.landmarks['bb'] = lms
             im = im.crop_to_landmarks_proportion(0.3, group='bb')
             im = im.rescale_to_pointcloud(reference_shape, group=group)
@@ -203,8 +203,8 @@ def load_image(path, reference_shape, is_training=False, group='PTS',
       mirror_image: flips horizontally the image's pixels and landmarks.
     Returns:
       pixels: a numpy array [width, height, 3].
-      estimate: an initial estimate a numpy array [68, 2].
-      gt_truth: the ground truth landmarks, a numpy array [68, 2].
+      estimate: an initial estimate a numpy array [num_landmarks, 2].
+      gt_truth: the ground truth landmarks, a numpy array [num_landmarks, 2].
     """
     if isinstance(path, bytes):
         path = path.decode('utf-8')
@@ -297,8 +297,8 @@ def batch_inputs(paths,
       mirror_image: mirrors the image and landmarks horizontally.
     Returns:
       images: a tf tensor of shape [batch_size, width, height, 3].
-      lms: a tf tensor of shape [batch_size, 68, 2].
-      lms_init: a tf tensor of shape [batch_size, 68, 2].
+      lms: a tf tensor of shape [batch_size, num_landmarks, 2].
+      lms_init: a tf tensor of shape [batch_size, num_landmarks, 2].
     """
 
     files = tf.concat([list(map(str, sorted(Path(d).parent.glob(Path(d).name)))) for d in paths], 0)

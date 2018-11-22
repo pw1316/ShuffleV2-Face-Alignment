@@ -1,6 +1,7 @@
 import numpy as np
 from menpo.shape import PointCloud
 
+# ===== 68 =====
 jaw_indices = np.arange(0, 17)
 lbrow_indices = np.arange(17, 22)
 rbrow_indices = np.arange(22, 27)
@@ -22,11 +23,72 @@ mirrored_parts_68 = np.hstack([
     np.roll(outer_mouth_indices[::-1], 7),
     np.roll(inner_mouth_indices[::-1], 5)
 ])
+# ===== 68 =====
+
+# ===== 73 =====
+jaw_73 = np.arange(0, 15)
+lbrow_73 = np.arange(15, 21)
+rbrow_73 = np.arange(21, 27)
+leye_73 = np.arange(31, 35)
+reye_73 = np.arange(27, 31)
+nose_73 = np.arange(35, 44)
+nose_hole_73 = np.arange(44, 46)
+nose_point_73 = np.arange(64, 65)
+upper_outer_mouth_73 = np.arange(46, 53)
+lower_outer_mouth_73 = np.arange(53, 58)
+upper_inner_mouth_73 = np.arange(61, 64)
+lower_inner_mouth_73 = np.arange(58, 61)
+eye_ex = np.arange(65, 73)
+
+parts_73 = (
+    jaw_73,
+    lbrow_73,
+    rbrow_73,
+    reye_73,
+    leye_73,
+    nose_73,
+    nose_hole_73,
+    upper_outer_mouth_73,
+    lower_outer_mouth_73,
+    lower_inner_mouth_73,
+    upper_inner_mouth_73,
+    nose_point_73,
+    eye_ex
+)
+
+mirrored_parts_73 = np.hstack([
+    jaw_73[::-1],
+    rbrow_73,
+    lbrow_73,
+    leye_73,
+    reye_73,
+    nose_73[::-1],
+    nose_hole_73[::-1],
+    upper_outer_mouth_73[::-1],
+    lower_outer_mouth_73[::-1],
+    lower_inner_mouth_73[::-1],
+    upper_inner_mouth_73[::-1],
+    nose_point_73,
+    eye_ex[::-1]
+])
+# ===== 73 =====
+
+
+def norm_idx(num_patches):
+    if num_patches == 68:
+        return 36, 45
+    elif num_patches == 73:
+        return 31, 27
+    else:
+        return None, None
 
 
 def mirror_landmarks_68(lms, image_size):
-    return PointCloud(abs(np.array([0, image_size[1]]) - lms.as_vector(
-    ).reshape(-1, 2))[mirrored_parts_68])
+    return PointCloud(abs(np.array([0, image_size[1]]) - lms.as_vector().reshape(-1, 2))[mirrored_parts_68])
+
+
+def mirror_landmarks_73(lms, image_size):
+    return PointCloud(abs(np.array([0, image_size[1]]) - lms.as_vector().reshape(-1, 2))[mirrored_parts_73])
 
 
 def mirror_image(im):
@@ -37,7 +99,8 @@ def mirror_image(im):
         lms = im.landmarks[group].lms
         if lms.points.shape[0] == 68:
             im.landmarks[group] = mirror_landmarks_68(lms, im.shape)
-
+        elif lms.points.shape[0] == 73:
+            im.landmarks[group] = mirror_landmarks_73(lms, im.shape)
     return im
 
 
@@ -75,18 +138,33 @@ def line(image, x0, y0, x1, y1, color):
 def draw_landmarks(img, lms):
     try:
         img = img.copy()
+        if lms.points.shape[0] == 68:
+            for i, part in enumerate(parts_68[1:]):
+                circular = []
 
-        for i, part in enumerate(parts_68[1:]):
-            circular = []
+                if i in (4, 5, 6, 7):
+                    circular = [part[0]]
 
-            if i in (4, 5, 6, 7):
-                circular = [part[0]]
+                for p1, p2 in zip(part, list(part[1:]) + circular):
+                    p1, p2 = lms[p1], lms[p2]
 
-            for p1, p2 in zip(part, list(part[1:]) + circular):
+                    line(img, p2[1], p2[0], p1[1], p1[0], 1)
+        elif lms.points.shape[0] == 73:
+            for i, part in enumerate(parts_73[:-2]):
+                circular = []
+                if i in (1, 2, 3, 4):
+                    circular = [part[0]]
+                for p1, p2 in zip(part, list(part[1:]) + circular):
+                    p1, p2 = lms[p1], lms[p2]
+                    line(img, p2[1], p2[0], p1[1], p1[0], 1)
+            # Mouth
+            for p1, p2 in zip(
+                [parts_73[7][-1], parts_73[8][-1], parts_73[7][0], parts_73[7][0], parts_73[7][-1], parts_73[7][-1]],
+                [parts_73[8][0], parts_73[7][0], parts_73[9][0], parts_73[10][-1], parts_73[9][-1], parts_73[10][0]]
+            ):
                 p1, p2 = lms[p1], lms[p2]
-
                 line(img, p2[1], p2[0], p1[1], p1[0], 1)
-    except:
+    except BaseException:
         pass
     return img
 
