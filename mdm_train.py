@@ -187,7 +187,8 @@ def train(scope=''):
         saver = tf.train.Saver(tf.all_variables())
 
         # Build the summary operation from the last tower summaries.
-        summary_op = tf.summary.merge(tf_summaries)
+        # summary_op = tf.summary.merge(tf_summaries)
+        summary_op = tf.summary.merge_all()
         # Start running operations on the Graph. allow_soft_placement must be
         # set to True to build towers on GPU, as some of the ops do not have GPU
         # implementations.

@@ -31,16 +31,44 @@ def normalized_rmse(pred, gt_truth, num_patches=68):
     return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * num_patches)
 
 
-def conv_model(inputs, is_training=True, scope=''):
+def conv_model(inputs, step, is_training=True, scope=''):
     # summaries or losses.
     net = {}
     with tf.op_scope([inputs], scope, 'mdm_conv'):
         with scopes.arg_scope([ops.conv2d, ops.fc], is_training=is_training):
             with scopes.arg_scope([ops.conv2d], activation=tf.nn.relu, padding='VALID'):
                 net['conv_1'] = ops.conv2d(inputs, 32, [3, 3], scope='conv_1')
+                tf.summary.image(
+                    'feature_step{}_conv_1'.format(step),
+                    tf.reshape(
+                        tf.transpose(net['conv_1'][:5, :, :, :], perm=[0, 1, 3, 2]),
+                        (1, 5 * net['conv_1'].shape[1], net['conv_1'].shape[3] * net['conv_1'].shape[2], 1)
+                    )
+                )
                 net['pool_1'] = ops.max_pool(net['conv_1'], [2, 2])
+                tf.summary.image(
+                    'feature_step{}_pool_1'.format(step),
+                    tf.reshape(
+                        tf.transpose(net['pool_1'][:5, :, :, :], perm=[0, 1, 3, 2]),
+                        (1, 5 * net['pool_1'].shape[1], net['pool_1'].shape[3] * net['pool_1'].shape[2], 1)
+                    )
+                )
                 net['conv_2'] = ops.conv2d(net['pool_1'], 32, [3, 3], scope='conv_2')
+                tf.summary.image(
+                    'feature_step{}_conv_2'.format(step),
+                    tf.reshape(
+                        tf.transpose(net['conv_2'][:5, :, :, :], perm=[0, 1, 3, 2]),
+                        (1, 5 * net['conv_2'].shape[1], net['conv_2'].shape[3] * net['conv_2'].shape[2], 1)
+                    )
+                )
                 net['pool_2'] = ops.max_pool(net['conv_2'], [2, 2])
+                tf.summary.image(
+                    'feature_step{}_pool_2'.format(step),
+                    tf.reshape(
+                        tf.transpose(net['pool_2'][:5, :, :, :], perm=[0, 1, 3, 2]),
+                        (1, 5 * net['pool_2'].shape[1], net['pool_2'].shape[3] * net['pool_2'].shape[2], 1)
+                    )
+                )
 
                 crop_size = net['pool_2'].get_shape().as_list()[1:3]
                 net['conv_2_cropped'] = utils.get_central_crop(net['conv_2'], box=crop_size)
@@ -60,11 +88,19 @@ def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26),
     for step in range(num_iterations):
         with tf.device('/cpu:0'):
             patches = extract_patches(images, tf.constant(patch_shape), inits+dx)
+        tf.summary.image(
+            'patches_{}'.format(step),
+            tf.reshape(
+                tf.transpose(patches, perm=[0, 2, 1, 3, 4]),
+                (batch_size, patch_shape[0], num_patches * patch_shape[1], -1)
+            ),
+            max_outputs=batch_size
+        )
         patches = tf.reshape(patches, (batch_size * num_patches, patch_shape[0], patch_shape[1], num_channels))
         endpoints['patches'] = patches
 
         with tf.variable_scope('convnet', reuse=step > 0):
-            net = conv_model(patches)
+            net = conv_model(patches, step)
             ims = net['concat']
 
         ims = tf.reshape(ims, (batch_size, -1))
