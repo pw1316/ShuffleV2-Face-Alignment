@@ -153,7 +153,6 @@ def load_images(paths, group=None, verbose=True):
             except ValueError:
                 print('skip')
                 continue
-            assert(lms.points.shape[0] == reference_shape.points.shape[0])
             im.landmarks['bb'] = lms
             im = im.crop_to_landmarks_proportion(0.3, group='bb')
             im = im.rescale_to_pointcloud(reference_shape, group=group)

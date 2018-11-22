@@ -138,7 +138,7 @@ def line(image, x0, y0, x1, y1, color):
 def draw_landmarks(img, lms):
     try:
         img = img.copy()
-        if lms.points.shape[0] == 68:
+        if lms.shape[0] == 68:
             for i, part in enumerate(parts_68[1:]):
                 circular = []
 
@@ -149,7 +149,7 @@ def draw_landmarks(img, lms):
                     p1, p2 = lms[p1], lms[p2]
 
                     line(img, p2[1], p2[0], p1[1], p1[0], 1)
-        elif lms.points.shape[0] == 73:
+        elif lms.shape[0] == 73:
             for i, part in enumerate(parts_73[:-2]):
                 circular = []
                 if i in (1, 2, 3, 4):
@@ -164,8 +164,8 @@ def draw_landmarks(img, lms):
             ):
                 p1, p2 = lms[p1], lms[p2]
                 line(img, p2[1], p2[0], p1[1], p1[0], 1)
-    except BaseException:
-        pass
+    except BaseException as e:
+        print('[DRAW LMS]', e)
     return img
 
 
