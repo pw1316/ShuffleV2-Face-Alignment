@@ -3,15 +3,10 @@ import data_provider
 import mdm_model
 import numpy as np
 import os
-import os.path
-import slim
 import tensorflow as tf
 import time
 import utils
 import menpo
-import menpo.io as mio
-
-os.environ['CUDA_VISIBLE_DEVICES'] = '2, 3'
 
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_float('lr', 0.001, """Initial learning rate.""")
@@ -133,7 +128,7 @@ def train(scope=''):
         tf.summary.image('images', tf.concat([gt_images, pred_images], 2), max_outputs=5)
         tf.summary.histogram('dx', tf_model.dx)
 
-        batchnorm_updates = tf.get_collection(slim.ops.UPDATE_OPS_COLLECTION, scope)
+        batchnorm_updates = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope)
 
         # Add histograms for gradients.
         for grad, var in tf_grads:
@@ -184,9 +179,7 @@ def train(scope=''):
 
         if FLAGS.pre_trained_dir:
             assert tf.gfile.Exists(FLAGS.pre_trained_dir)
-            variables_to_restore = tf.get_collection(
-                slim.variables.VARIABLES_TO_RESTORE)
-            restorer = tf.train.Saver(variables_to_restore)
+            restorer = tf.train.Saver()
             restorer.restore(sess, FLAGS.pre_trained_dir)
             print('%s: Pre-trained model restored from %s' %
                   (datetime.now(), FLAGS.pre_trained_dir))

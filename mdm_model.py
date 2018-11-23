@@ -1,14 +1,9 @@
-import slim
 import tensorflow as tf
 import utils
 
-from tensorflow.python.framework import ops as tfops
-from slim import ops
-from slim import scopes
-
 extract_patches_module = tf.load_op_library('extract_patches_op/extract_patches.so')
 extract_patches = extract_patches_module.extract_patches
-tfops.NotDifferentiable('ExtractPatches')
+tf.NotDifferentiable('ExtractPatches')
 
 
 def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
@@ -56,8 +51,8 @@ class MDMModel:
                 self.cnn.append(net)
 
             with tf.variable_scope('rnn', reuse=step > 0):
-                self.rnn_hidden = slim.ops.fc(tf.concat([rnn_in, self.rnn_hidden], 1), 512, activation=tf.tanh)
-                prediction = slim.ops.fc(self.rnn_hidden, self.num_patches * 2, scope='pred', activation=None)
+                self.rnn_hidden = tf.layers.dense(tf.concat([rnn_in, self.rnn_hidden], 1), 512, activation=tf.tanh)
+                prediction = tf.layers.dense(self.rnn_hidden, self.num_patches * 2, name='pred', activation=None)
                 prediction = tf.reshape(prediction, (self.batch_size, self.num_patches, 2))
                 self.rnn.append(prediction)
             self.dx += prediction
@@ -79,32 +74,30 @@ class MDMModel:
             (self.batch_size * self.num_patches, self.patch_shape[0], self.patch_shape[1], self.num_channels)
         )
         net = {}
-        with tf.op_scope([inputs], scope, 'mdm_conv'):
-            with scopes.arg_scope([ops.conv2d, ops.fc], is_training=is_training):
-                with scopes.arg_scope([ops.conv2d], activation=tf.nn.relu, padding='VALID'):
-                    inputs = ops.conv2d(inputs, 32, [3, 3], scope='conv_1')
-                    self.visualize_cnn_mean(step, inputs, 'conv_1')
-                    net['conv_1'] = inputs
+        with tf.name_scope(scope, 'mdm_conv', [inputs]):
+            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_1')
+            self.visualize_cnn_mean(step, inputs, 'conv_1')
+            net['conv_1'] = inputs
 
-                    inputs = ops.max_pool(inputs, [2, 2])
-                    self.visualize_cnn_mean(step, inputs, 'pool_1')
-                    net['pool_1'] = inputs
+            inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
+            self.visualize_cnn_mean(step, inputs, 'pool_1')
+            net['pool_1'] = inputs
 
-                    inputs = ops.conv2d(inputs, 32, [3, 3], scope='conv_2')
-                    self.visualize_cnn_mean(step, inputs, 'conv_2')
-                    net['conv_2'] = inputs
+            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_2')
+            self.visualize_cnn_mean(step, inputs, 'conv_2')
+            net['conv_2'] = inputs
 
-                    inputs = ops.max_pool(inputs, [2, 2])
-                    self.visualize_cnn_mean(step, inputs, 'pool_2')
-                    net['pool_2'] = inputs
+            inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
+            self.visualize_cnn_mean(step, inputs, 'pool_2')
+            net['pool_2'] = inputs
 
-                    crop_size = inputs.get_shape().as_list()[1:3]
-                    cropped = utils.get_central_crop(net['conv_2'], box=crop_size)
-                    self.visualize_cnn_mean(step, cropped, 'conv_2_cropped')
-                    net['conv_2_cropped'] = cropped
+            crop_size = inputs.get_shape().as_list()[1:3]
+            cropped = utils.get_central_crop(net['conv_2'], box=crop_size)
+            self.visualize_cnn_mean(step, cropped, 'conv_2_cropped')
+            net['conv_2_cropped'] = cropped
 
-                    inputs = tf.reshape(tf.concat([cropped, inputs], 3), (self.batch_size, -1))
-                    net['concat'] = inputs
+            inputs = tf.reshape(tf.concat([cropped, inputs], 3), (self.batch_size, -1))
+            net['concat'] = inputs
         return inputs, net
 
     def visualize_patches(self, step, inputs):

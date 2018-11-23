@@ -19,7 +19,6 @@ import os.path
 import tensorflow as tf
 import time
 import utils
-import slim
 import menpo.io as mio
 
 os.environ['CUDA_VISIBLE_DEVICES']='2, 3'  

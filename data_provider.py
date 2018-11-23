@@ -249,11 +249,11 @@ def distort_color(image, thread_id=0, stddev=0.1, scope=None):
       image: Tensor containing single image.
       thread_id: preprocessing thread ID.
       stddev: gaussian noise dev
-      scope: Optional scope for op_scope.
+      scope: Optional scope for name_scope.
     Returns:
       color-distorted image
     """
-    with tf.op_scope([image], scope, 'distort_color'):
+    with tf.name_scope(scope, 'distort_color', [image]):
         color_ordering = thread_id % 2
 
         if color_ordering == 0:
