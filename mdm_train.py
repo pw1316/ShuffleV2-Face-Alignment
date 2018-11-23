@@ -83,7 +83,7 @@ def train(scope=''):
             random_shape = im.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
-        with tf.name_scope('data_provider', None, [tf_mean_shape]):
+        with tf.name_scope('data_provider', values=[tf_mean_shape]):
             tf_image, tf_shape = tf.py_func(
                 get_random_sample, [], [tf.float32, tf.float32],
                 stateful=True,

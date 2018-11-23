@@ -56,10 +56,10 @@ def grey_to_rgb(im):
     return im
 
 
-def align_reference_shape(reference_shape, bb, scope=''):
+def align_reference_shape(reference_shape, bb):
     def norm(x):
         return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
-    with tf.name_scope(scope, 'align_shape_to_bb', [reference_shape, bb]):
+    with tf.name_scope('align_shape_to_bb', values=[reference_shape, bb]):
         min_xy = tf.reduce_min(reference_shape, 0)
         max_xy = tf.reduce_max(reference_shape, 0)
         min_x, min_y = min_xy[0], min_xy[1]
@@ -74,7 +74,7 @@ def align_reference_shape(reference_shape, bb, scope=''):
     return initial_shape
 
 
-def random_shape(tf_shape, tf_mean_shape, pca_model, scope=''):
+def random_shape(tf_shape, tf_mean_shape, pca_model):
     """Generates a new shape estimate given the ground truth shape.
 
     Args:
@@ -89,7 +89,7 @@ def random_shape(tf_shape, tf_mean_shape, pca_model, scope=''):
         return detect.synthesize_detection(pca_model, menpo.shape.PointCloud(
             lms).bounding_box()).points.astype(np.float32)
 
-    with tf.name_scope(scope, 'random_initial_shape', [tf_shape, tf_mean_shape]):
+    with tf.name_scope('random_initial_shape', values=[tf_shape, tf_mean_shape]):
         tf_random_bb, = tf.py_func(
             synthesize, [tf_shape], [tf.float32],
             stateful=True,
@@ -243,7 +243,7 @@ def load_image(path, reference_shape, is_training=False, group='PTS',
     return pixels.astype(np.float32).copy(), gt_truth, estimate
 
 
-def distort_color(image, thread_id=0, stddev=0.1, scope=None):
+def distort_color(image, thread_id=0, stddev=0.1):
     """Distort the color of the image.
     Each color distortion is non-commutative and thus ordering of the color ops
     matters. Ideally we would randomly permute the ordering of the color ops.
@@ -253,11 +253,10 @@ def distort_color(image, thread_id=0, stddev=0.1, scope=None):
       image: Tensor containing single image.
       thread_id: preprocessing thread ID.
       stddev: gaussian noise dev
-      scope: Optional scope for name_scope.
     Returns:
       color-distorted image
     """
-    with tf.name_scope(scope, 'distort_color', [image]):
+    with tf.name_scope('distort_color', values=[image]):
         color_ordering = thread_id % 2
 
         if color_ordering == 0:
