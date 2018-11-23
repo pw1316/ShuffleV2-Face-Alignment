@@ -1,8 +1,5 @@
-from functools import partial
-
 import slim
 import tensorflow as tf
-import data_provider
 import utils
 
 from tensorflow.python.framework import ops as tfops
@@ -51,13 +48,7 @@ class MDMModel:
         for step in range(self.num_iterations):
             with tf.device('/cpu:0'):
                 patches = extract_patches(self.in_images, tf.constant(self.patch_shape), self.in_init_shapes + self.dx)
-            tf.summary.image(
-                'patches_{}'.format(step),
-                tf.reshape(
-                    tf.transpose(patches[:10], perm=[0, 2, 1, 3, 4]),
-                    (1, min(self.batch_size, 10) * self.patch_shape[0], self.num_patches * self.patch_shape[1], -1)
-                ),
-            )
+            self.visualize_patches(step, patches)
             self.patches.append(patches)
 
             with tf.variable_scope('convnet', reuse=step > 0):
@@ -72,42 +63,6 @@ class MDMModel:
             self.dx += prediction
             self.dxs.append(self.dx)
         self.pred = self.in_init_shapes + self.dx
-
-    def visualize_cnn(self, step, inputs, name):
-        """
-        Visualize Feature Map
-        Args:
-            step(int): RNN step
-            inputs: Tensor with shape [n * num_landmarks, h, w, c]
-            name(str): Image name
-        Returns:
-            None
-        """
-        tf.summary.image(
-            'feature_step{}_{}'.format(step, name),
-            tf.reshape(
-                tf.transpose(inputs[:10 * self.num_patches], perm=[0, 1, 3, 2]),
-                (min(10, self.batch_size), self.num_patches * inputs.shape[1], inputs.shape[2] * inputs.shape[3], 1)
-            ),
-            max_outputs=min(10, self.batch_size)
-        )
-
-    def visualize_cnn_mean(self, step, inputs, name):
-        """
-        Visualize Mean Feature Map
-        Args:
-            step(int): RNN step
-            inputs: Tensor with shape [n * num_landmarks, h, w, c]
-            name(str): Image name
-        Returns:
-            None
-        """
-        inputs = tf.reduce_mean(inputs, 3)
-        inputs = tf.reshape(inputs, (self.batch_size, self.num_patches, inputs.shape[1], inputs.shape[2]))
-        inputs = inputs[:10]
-        inputs = tf.transpose(inputs, (0, 2, 1, 3))
-        inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
-        tf.summary.image('cnn_mean_feature/step{}/{}'.format(step, name), inputs)
 
     def conv_model(self, inputs, step, is_training=True, scope=''):
         """
@@ -151,3 +106,53 @@ class MDMModel:
                     inputs = tf.reshape(tf.concat([cropped, inputs], 3), (self.batch_size, -1))
                     net['concat'] = inputs
         return inputs, net
+
+    def visualize_patches(self, step, inputs):
+        """
+        Visualize Feature Map
+        Args:
+            step(int): RNN step
+            inputs: Tensor with shape [n, num_landmarks, patch_shape, patch_shape, 3]
+        Returns:
+            None
+        """
+        inputs = inputs[:10]
+        inputs = tf.transpose(inputs, (0, 2, 1, 3, 4)),
+        inputs = tf.reshape(inputs, (1, -1, self.num_patches * self.patch_shape[1], 3)),
+        tf.summary.image('patches/step{}'.format(step), inputs)
+
+    def visualize_cnn(self, step, inputs, name):
+        """
+        Visualize Feature Map
+        Args:
+            step(int): RNN step
+            inputs: Tensor with shape [n * num_landmarks, h, w, c]
+            name(str): Image name
+        Returns:
+            None
+        """
+        tf.summary.image(
+            'feature_step{}_{}'.format(step, name),
+            tf.reshape(
+                tf.transpose(inputs[:10 * self.num_patches], perm=[0, 1, 3, 2]),
+                (min(10, self.batch_size), self.num_patches * inputs.shape[1], inputs.shape[2] * inputs.shape[3], 1)
+            ),
+            max_outputs=min(10, self.batch_size)
+        )
+
+    def visualize_cnn_mean(self, step, inputs, name):
+        """
+        Visualize Mean Feature Map
+        Args:
+            step(int): RNN step
+            inputs: Tensor with shape [n * num_landmarks, h, w, c]
+            name(str): Image name
+        Returns:
+            None
+        """
+        inputs = tf.reduce_mean(inputs, 3)
+        inputs = tf.reshape(inputs, (self.batch_size, self.num_patches, inputs.shape[1], inputs.shape[2]))
+        inputs = inputs[:10]
+        inputs = tf.transpose(inputs, (0, 2, 1, 3))
+        inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
+        tf.summary.image('cnn_mean_feature/step{}/{}'.format(step, name), inputs)
