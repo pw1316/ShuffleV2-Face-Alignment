@@ -83,22 +83,27 @@ def train(scope=''):
             random_shape = im.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
-        tf_image, tf_shape = tf.py_func(get_random_sample, [], [tf.float32, tf.float32], stateful=True)
-        tf_initial_shape = data_provider.random_shape(tf_shape, tf_mean_shape, _pca_model)
-        tf_image.set_shape(_images[0].shape)
-        tf_shape.set_shape(_shapes[0].points.shape)
-        tf_initial_shape.set_shape(_shapes[0].points.shape)
-        tf_image = data_provider.distort_color(tf_image)
+        with tf.name_scope('data_provider', None, [tf_mean_shape]):
+            tf_image, tf_shape = tf.py_func(
+                get_random_sample, [], [tf.float32, tf.float32],
+                stateful=True,
+                name='random_sample'
+            )
+            tf_initial_shape = data_provider.random_shape(tf_shape, tf_mean_shape, _pca_model)
+            tf_image.set_shape(_images[0].shape)
+            tf_shape.set_shape(_shapes[0].points.shape)
+            tf_initial_shape.set_shape(_shapes[0].points.shape)
+            tf_image = data_provider.distort_color(tf_image)
 
-        tf_images, tf_shapes, tf_initial_shapes = tf.train.batch(
-            [tf_image, tf_shape, tf_initial_shape],
-            FLAGS.batch_size,
-            dynamic_pad=False,
-            capacity=5000,
-            enqueue_many=False,
-            num_threads=FLAGS.num_threads,
-            name='batch'
-        )
+            tf_images, tf_shapes, tf_initial_shapes = tf.train.batch(
+                [tf_image, tf_shape, tf_initial_shape],
+                FLAGS.batch_size,
+                dynamic_pad=False,
+                capacity=5000,
+                enqueue_many=False,
+                num_threads=FLAGS.num_threads,
+                name='batch'
+            )
 
         print('Defining model...')
         with tf.device(FLAGS.train_device):

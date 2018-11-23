@@ -56,26 +56,25 @@ def grey_to_rgb(im):
     return im
 
 
-def align_reference_shape(reference_shape, bb):
-    min_xy = tf.reduce_min(reference_shape, 0)
-    max_xy = tf.reduce_max(reference_shape, 0)
-    min_x, min_y = min_xy[0], min_xy[1]
-    max_x, max_y = max_xy[0], max_xy[1]
-
-    reference_shape_bb = tf.stack([[min_x, min_y], [max_x, min_y],
-                                  [max_x, max_y], [min_x, max_y]])
-
+def align_reference_shape(reference_shape, bb, scope=''):
     def norm(x):
         return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
+    with tf.name_scope(scope, 'align_shape_to_bb', [reference_shape, bb]):
+        min_xy = tf.reduce_min(reference_shape, 0)
+        max_xy = tf.reduce_max(reference_shape, 0)
+        min_x, min_y = min_xy[0], min_xy[1]
+        max_x, max_y = max_xy[0], max_xy[1]
+        reference_shape_bb = tf.stack([[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]])
+        ratio = norm(bb) / norm(reference_shape_bb)
+        initial_shape = tf.add(
+            (reference_shape - tf.reduce_mean(reference_shape_bb, 0)) * ratio,
+            tf.reduce_mean(bb, 0),
+            name='initial_shape'
+        )
+    return initial_shape
 
-    ratio = norm(bb) / norm(reference_shape_bb)
-    return tf.add(
-        (reference_shape - tf.reduce_mean(reference_shape_bb, 0)) * ratio,
-        tf.reduce_mean(bb, 0),
-        name='initial_shape')
 
-
-def random_shape(tf_shape, tf_mean_shape, pca_model):
+def random_shape(tf_shape, tf_mean_shape, pca_model, scope=''):
     """Generates a new shape estimate given the ground truth shape.
 
     Args:
@@ -90,9 +89,14 @@ def random_shape(tf_shape, tf_mean_shape, pca_model):
         return detect.synthesize_detection(pca_model, menpo.shape.PointCloud(
             lms).bounding_box()).points.astype(np.float32)
 
-    tf_random_bb, = tf.py_func(synthesize, [tf_shape], [tf.float32])  # Random bb for shape
-    tf_random_shape = align_reference_shape(tf_mean_shape, tf_random_bb)  # align mean shape to bb
-    tf_random_shape.set_shape(tf_mean_shape.get_shape())
+    with tf.name_scope(scope, 'random_initial_shape', [tf_shape, tf_mean_shape]):
+        tf_random_bb, = tf.py_func(
+            synthesize, [tf_shape], [tf.float32],
+            stateful=True,
+            name='random_bb'
+        )  # Random bb for shape
+        tf_random_shape = align_reference_shape(tf_mean_shape, tf_random_bb)  # align mean shape to bb
+        tf_random_shape.set_shape(tf_mean_shape.get_shape())
     return tf_random_shape
 
 
