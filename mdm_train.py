@@ -166,7 +166,7 @@ def train(scope=''):
                             batchnorm_updates_op)
 
         # Create a saver.
-        saver = tf.train.Saver(tf.all_variables())
+        saver = tf.train.Saver()
 
         # Build the summary operation from the last tower summaries.
         summary_op = tf.summary.merge_all()
@@ -177,7 +177,7 @@ def train(scope=''):
         config.gpu_options.allow_growth = True
         sess = tf.Session(config=config)
         # Build an initialization operation to run below.
-        init = tf.initialize_all_variables()
+        init = tf.global_variables_initializer()
         print('Initializing variables...')
         sess.run(init)
         print('Initialized variables.')

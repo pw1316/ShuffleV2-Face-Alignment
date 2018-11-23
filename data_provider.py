@@ -223,7 +223,7 @@ def load_image(path, reference_shape, is_training=False, group='PTS',
     im = im.crop_to_landmarks_proportion(0.3, group='bb')
     reference_shape = PointCloud(reference_shape)
 
-    bb = im.landmarks['bb'].lms.bounding_box()
+    bb = im.landmarks['bb'].bounding_box()
 
     im.landmarks['__initial'] = align_shape_with_bounding_box(reference_shape,
                                                               bb)
@@ -232,8 +232,8 @@ def load_image(path, reference_shape, is_training=False, group='PTS',
     if mirror_image:
         im = utils.mirror_image(im)
 
-    lms = im.landmarks[group].lms
-    initial = im.landmarks['__initial'].lms
+    lms = im.landmarks[group]
+    initial = im.landmarks['__initial']
 
     # if the image is greyscale then convert to rgb.
     pixels = grey_to_rgb(im).pixels.transpose(1, 2, 0)

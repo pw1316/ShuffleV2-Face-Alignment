@@ -55,7 +55,7 @@ def load_pico_detector():
 def detect_and_check(img, det=None, group=None):
     if det is None:
         det = detector
-    gt = img.landmarks[group].lms.bounding_box()
+    gt = img.landmarks[group].bounding_box()
     for detection in det(img):
         if bbox_overlap_acceptable(gt.points, detection.points):
             return detection
@@ -131,7 +131,7 @@ def load_n_create_generator(pattern, detector_name, group=None, overwrite=False)
     print('Creating a model out of {} detections.'.format(len(detections)))
     # normalize these to size [1, 1], centred on origin
     normed_detections = [
-      normalize(im.landmarks[group].lms.bounding_box()).apply(det)
+      normalize(im.landmarks[group].bounding_box()).apply(det)
       for im, det in detections
     ]
 

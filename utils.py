@@ -96,7 +96,7 @@ def mirror_image(im):
     im.pixels = im.pixels[..., ::-1].copy()
 
     for group in im.landmarks:
-        lms = im.landmarks[group].lms
+        lms = im.landmarks[group]
         if lms.points.shape[0] == 68:
             im.landmarks[group] = mirror_landmarks_68(lms, im.shape)
         elif lms.points.shape[0] == 73:
@@ -108,7 +108,7 @@ def mirror_image_bb(im):
     im = im.copy()
     im.pixels = im.pixels[..., ::-1]
     im.landmarks['bounding_box'] = PointCloud(abs(np.array([0, im.shape[
-        1]]) - im.landmarks['bounding_box'].lms.points))
+        1]]) - im.landmarks['bounding_box'].points))
     return im
 
 
