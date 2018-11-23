@@ -115,7 +115,7 @@ class MDMModel:
         Returns:
             None
         """
-        with tf.name_scope('visualize', values=[inputs]):
+        with tf.name_scope('visualize{}'.format(step), values=[inputs]):
             inputs = inputs[:10]
             inputs = tf.transpose(inputs, (0, 2, 1, 3, 4))
             inputs = tf.reshape(inputs, (1, -1, self.num_patches * self.patch_shape[1], 3))
