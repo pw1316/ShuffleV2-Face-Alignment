@@ -50,9 +50,7 @@ def train(scope=''):
             trainable=False
         )
 
-        train_dirs = FLAGS.datasets.split(':')
-
-        # Decay the learning rate exponentially based on the number of steps.
+        # Learning rate
         tf_lr = tf.train.exponential_decay(
             FLAGS.lr,
             tf_global_step,
@@ -61,10 +59,12 @@ def train(scope=''):
             staircase=True,
             name='learning_rate'
         )
+        tf.summary.scalar('learning_rate', tf_lr)
 
         # Create an optimizer that performs gradient descent.
         opt = tf.train.AdamOptimizer(tf_lr)
 
+        train_dirs = FLAGS.datasets.split(':')
         _images, _shapes, _mean_shape, _pca_model = \
             data_provider.load_images(train_dirs, verbose=True)
         assert(_shapes[0].points.shape[0] == FLAGS.num_patches)
@@ -107,63 +107,45 @@ def train(scope=''):
 
         print('Defining model...')
         with tf.device(FLAGS.train_device):
-            # Retain the summaries from the final tower.
-            tf_summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
-            tf_preds, tf_deltas, _ = mdm_model.model(
+            tf_model = mdm_model.MDMModel(
                 tf_images,
                 tf_initial_shapes,
                 num_iterations=4,
                 num_patches=FLAGS.num_patches,
                 patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
-            )  # TODO model
-
+            )
             tf_total_loss = 0
-
-            for i, tf_dx in enumerate(tf_deltas):
+            for i, tf_dx in enumerate(tf_model.dxs):
                 tf_norm_error = mdm_model.normalized_rmse(
                     tf_dx + tf_initial_shapes,
                     tf_shapes,
                     num_patches=FLAGS.num_patches
                 )
-                tf.summary.histogram('errors', tf_norm_error)
                 tf_loss = tf.reduce_mean(tf_norm_error)
+                tf.summary.scalar('losses/step_{}'.format(i), tf_loss)
                 tf_total_loss += tf_loss
-                tf_summaries.append(tf.summary.scalar('losses/step_{}'.format(i), tf_loss))
-
+            tf.summary.scalar('losses/total', tf_total_loss)
             # Calculate the gradients for the batch of data
             tf_grads = opt.compute_gradients(tf_total_loss)
 
-        tf_summaries.append(tf.summary.scalar('losses/total', tf_total_loss))
-        pred_images, = tf.py_func(utils.batch_draw_landmarks,
-                                  [tf_images, tf_preds], [tf.float32])
-        gt_images, = tf.py_func(utils.batch_draw_landmarks, [tf_images, tf_shapes],
-                                [tf.float32])
+        pred_images, = tf.py_func(utils.batch_draw_landmarks, [tf_images, tf_model.pred], [tf.float32])
+        gt_images, = tf.py_func(utils.batch_draw_landmarks, [tf_images, tf_shapes], [tf.float32])
+        tf.summary.image('images', tf.concat([gt_images, pred_images], 2), max_outputs=5)
+        tf.summary.histogram('dx', tf_model.dx)
 
-        summary = tf.summary.image('images',
-                                   tf.concat([gt_images, pred_images], 2),
-                                   max_outputs=5)
-        tf_summaries.append(tf.summary.histogram('dx', tf_preds - tf_initial_shapes))
-
-        tf_summaries.append(summary)
-
-        batchnorm_updates = tf.get_collection(slim.ops.UPDATE_OPS_COLLECTION,
-                                              scope)
-
-        # Add a summary to track the learning rate.
-        tf_summaries.append(tf.summary.scalar('learning_rate', tf_lr))
+        batchnorm_updates = tf.get_collection(slim.ops.UPDATE_OPS_COLLECTION, scope)
 
         # Add histograms for gradients.
         for grad, var in tf_grads:
             if grad is not None:
-                tf_summaries.append(tf.summary.histogram(var.op.name +
-                                                      '/gradients', grad))
+                tf.summary.histogram(var.op.name + '/gradients', grad)
 
         # Apply the gradients to adjust the shared variables.
         apply_gradient_op = opt.apply_gradients(tf_grads, global_step=tf_global_step)
 
         # Add histograms for trainable variables.
         for var in tf.trainable_variables():
-            tf_summaries.append(tf.summary.histogram(var.op.name, var))
+            tf.summary.histogram(var.op.name, var)
 
         # Track the moving averages of all trainable variables.
         # Note that we maintain a "double-average" of the BatchNormalization
@@ -187,13 +169,12 @@ def train(scope=''):
         saver = tf.train.Saver(tf.all_variables())
 
         # Build the summary operation from the last tower summaries.
-        # summary_op = tf.summary.merge(tf_summaries)
         summary_op = tf.summary.merge_all()
         # Start running operations on the Graph. allow_soft_placement must be
         # set to True to build towers on GPU, as some of the ops do not have GPU
         # implementations.
         config = tf.ConfigProto(allow_soft_placement=True)
-        config.gpu_options.allow_growth=True
+        config.gpu_options.allow_growth = True
         sess = tf.Session(config=config)
         # Build an initialization operation to run below.
         init = tf.initialize_all_variables()

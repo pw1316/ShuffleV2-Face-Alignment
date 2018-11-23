@@ -31,85 +31,125 @@ def normalized_rmse(pred, gt_truth, num_patches=68):
     return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * num_patches)
 
 
-def conv_model(inputs, step, is_training=True, scope=''):
-    # summaries or losses.
-    net = {}
-    with tf.op_scope([inputs], scope, 'mdm_conv'):
-        with scopes.arg_scope([ops.conv2d, ops.fc], is_training=is_training):
-            with scopes.arg_scope([ops.conv2d], activation=tf.nn.relu, padding='VALID'):
-                net['conv_1'] = ops.conv2d(inputs, 32, [3, 3], scope='conv_1')
-                tf.summary.image(
-                    'feature_step{}_conv_1'.format(step),
-                    tf.reshape(
-                        tf.transpose(net['conv_1'][:5, :, :, :], perm=[0, 1, 3, 2]),
-                        (1, 5 * net['conv_1'].shape[1], net['conv_1'].shape[3] * net['conv_1'].shape[2], 1)
-                    )
-                )
-                net['pool_1'] = ops.max_pool(net['conv_1'], [2, 2])
-                tf.summary.image(
-                    'feature_step{}_pool_1'.format(step),
-                    tf.reshape(
-                        tf.transpose(net['pool_1'][:5, :, :, :], perm=[0, 1, 3, 2]),
-                        (1, 5 * net['pool_1'].shape[1], net['pool_1'].shape[3] * net['pool_1'].shape[2], 1)
-                    )
-                )
-                net['conv_2'] = ops.conv2d(net['pool_1'], 32, [3, 3], scope='conv_2')
-                tf.summary.image(
-                    'feature_step{}_conv_2'.format(step),
-                    tf.reshape(
-                        tf.transpose(net['conv_2'][:5, :, :, :], perm=[0, 1, 3, 2]),
-                        (1, 5 * net['conv_2'].shape[1], net['conv_2'].shape[3] * net['conv_2'].shape[2], 1)
-                    )
-                )
-                net['pool_2'] = ops.max_pool(net['conv_2'], [2, 2])
-                tf.summary.image(
-                    'feature_step{}_pool_2'.format(step),
-                    tf.reshape(
-                        tf.transpose(net['pool_2'][:5, :, :, :], perm=[0, 1, 3, 2]),
-                        (1, 5 * net['pool_2'].shape[1], net['pool_2'].shape[3] * net['pool_2'].shape[2], 1)
-                    )
-                )
+class MDMModel:
+    def __init__(self, images, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3):
+        self.in_images = images
+        self.in_init_shapes = inits
+        self.num_iterations = num_iterations
+        self.num_patches = num_patches
+        self.patch_shape = patch_shape
+        self.num_channels = num_channels
 
-                crop_size = net['pool_2'].get_shape().as_list()[1:3]
-                net['conv_2_cropped'] = utils.get_central_crop(net['conv_2'], box=crop_size)
+        self.batch_size = images.get_shape().as_list()[0]
+        self.rnn_hidden = tf.zeros((self.batch_size, 512))
+        self.dx = tf.zeros((self.batch_size, self.num_patches, 2))
+        self.dxs = []
+        self.patches = []
+        self.cnn = []
+        self.rnn = []
 
-                net['concat'] = tf.concat([net['conv_2_cropped'], net['pool_2']], 3)
-                print('CNN out shape:', net['concat'].shape)
-    return net
+        for step in range(self.num_iterations):
+            with tf.device('/cpu:0'):
+                patches = extract_patches(self.in_images, tf.constant(self.patch_shape), self.in_init_shapes + self.dx)
+            tf.summary.image(
+                'patches_{}'.format(step),
+                tf.reshape(
+                    tf.transpose(patches[:10], perm=[0, 2, 1, 3, 4]),
+                    (1, min(self.batch_size, 10) * self.patch_shape[0], self.num_patches * self.patch_shape[1], -1)
+                ),
+            )
+            self.patches.append(patches)
 
+            with tf.variable_scope('convnet', reuse=step > 0):
+                rnn_in, net = self.conv_model(patches, step)
+                self.cnn.append(net)
 
-def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3):
-    batch_size = images.get_shape().as_list()[0]
-    hidden_state = tf.zeros((batch_size, 512))
-    dx = tf.zeros((batch_size, num_patches, 2))
-    endpoints = {}
-    dxs = []
+            with tf.variable_scope('rnn', reuse=step > 0):
+                self.rnn_hidden = slim.ops.fc(tf.concat([rnn_in, self.rnn_hidden], 1), 512, activation=tf.tanh)
+                prediction = slim.ops.fc(self.rnn_hidden, self.num_patches * 2, scope='pred', activation=None)
+                prediction = tf.reshape(prediction, (self.batch_size, self.num_patches, 2))
+                self.rnn.append(prediction)
+            self.dx += prediction
+            self.dxs.append(self.dx)
+        self.pred = self.in_init_shapes + self.dx
 
-    for step in range(num_iterations):
-        with tf.device('/cpu:0'):
-            patches = extract_patches(images, tf.constant(patch_shape), inits+dx)
+    def visualize_cnn(self, step, inputs, name):
+        """
+        Visualize Feature Map
+        Args:
+            step(int): RNN step
+            inputs: Tensor with shape [n * num_landmarks, h, w, c]
+            name(str): Image name
+        Returns:
+            None
+        """
         tf.summary.image(
-            'patches_{}'.format(step),
+            'feature_step{}_{}'.format(step, name),
             tf.reshape(
-                tf.transpose(patches, perm=[0, 2, 1, 3, 4]),
-                (batch_size, patch_shape[0], num_patches * patch_shape[1], -1)
+                tf.transpose(inputs[:10 * self.num_patches], perm=[0, 1, 3, 2]),
+                (min(10, self.batch_size), self.num_patches * inputs.shape[1], inputs.shape[2] * inputs.shape[3], 1)
             ),
-            max_outputs=batch_size
+            max_outputs=min(10, self.batch_size)
         )
-        patches = tf.reshape(patches, (batch_size * num_patches, patch_shape[0], patch_shape[1], num_channels))
-        endpoints['patches'] = patches
 
-        with tf.variable_scope('convnet', reuse=step > 0):
-            net = conv_model(patches, step)
-            ims = net['concat']
+    def visualize_cnn_mean(self, step, inputs, name):
+        """
+        Visualize Mean Feature Map
+        Args:
+            step(int): RNN step
+            inputs: Tensor with shape [n * num_landmarks, h, w, c]
+            name(str): Image name
+        Returns:
+            None
+        """
+        with tf.variable_scope('cnn_mean_feature'):
+            with tf.variable_scope('step{}'.format(step)):
+                inputs = tf.reduce_mean(inputs, 3)
+                inputs = tf.reshape(inputs, (self.batch_size, self.num_patches, inputs.shape[1], inputs.shape[2]))
+                inputs = inputs[:10]
+                inputs = tf.transpose(inputs, (0, 2, 1, 3))
+                inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
+                tf.summary.image(name, inputs)
 
-        ims = tf.reshape(ims, (batch_size, -1))
+    def conv_model(self, inputs, step, is_training=True, scope=''):
+        """
+        Construct the CNN
+        Args:
+            inputs: Tensor with shape [n, num_landmarks, patch_shape, patch_shape, 3]
+            step(int): RNN step
+            is_training(bool): Is training or not
+            scope(str): Scope
+        Returns:
+        """
+        inputs = tf.reshape(
+            inputs,
+            (self.batch_size * self.num_patches, self.patch_shape[0], self.patch_shape[1], self.num_channels)
+        )
+        net = {}
+        with tf.op_scope([inputs], scope, 'mdm_conv'):
+            with scopes.arg_scope([ops.conv2d, ops.fc], is_training=is_training):
+                with scopes.arg_scope([ops.conv2d], activation=tf.nn.relu, padding='VALID'):
+                    inputs = ops.conv2d(inputs, 32, [3, 3], scope='conv_1')
+                    self.visualize_cnn(step, inputs, 'conv_1')
+                    net['conv_1'] = inputs
 
-        with tf.variable_scope('rnn', reuse=step > 0) as scope:
-            hidden_state = slim.ops.fc(tf.concat([ims, hidden_state], 1), 512, activation=tf.tanh)
-            prediction = slim.ops.fc(hidden_state, num_patches * 2, scope='pred', activation=None)
-            endpoints['prediction'] = prediction
-        prediction = tf.reshape(prediction, (batch_size, num_patches, 2))
-        dx += prediction
-        dxs.append(dx)
-    return inits + dx, dxs, endpoints
+                    inputs = ops.max_pool(inputs, [2, 2])
+                    self.visualize_cnn(step, inputs, 'pool_1')
+                    net['pool_1'] = inputs
+
+                    inputs = ops.conv2d(inputs, 32, [3, 3], scope='conv_2')
+                    self.visualize_cnn(step, inputs, 'conv_2')
+                    net['conv_2'] = inputs
+
+                    inputs = ops.max_pool(inputs, [2, 2])
+                    self.visualize_cnn(step, inputs, 'pool_2')
+                    net['pool_2'] = inputs
+
+                    crop_size = inputs.get_shape().as_list()[1:3]
+                    cropped = utils.get_central_crop(net['conv_2'], box=crop_size)
+                    self.visualize_cnn(step, cropped, 'conv_2_cropped')
+                    net['conv_2_cropped'] = cropped
+
+                    inputs = tf.reshape(tf.concat([cropped, inputs], 3), (self.batch_size, -1))
+                    net['concat'] = inputs
+        return inputs, net
