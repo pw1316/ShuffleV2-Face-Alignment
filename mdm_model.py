@@ -102,14 +102,12 @@ class MDMModel:
         Returns:
             None
         """
-        with tf.variable_scope('cnn_mean_feature'):
-            with tf.variable_scope('step{}'.format(step)):
-                inputs = tf.reduce_mean(inputs, 3)
-                inputs = tf.reshape(inputs, (self.batch_size, self.num_patches, inputs.shape[1], inputs.shape[2]))
-                inputs = inputs[:10]
-                inputs = tf.transpose(inputs, (0, 2, 1, 3))
-                inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
-                tf.summary.image(name, inputs)
+        inputs = tf.reduce_mean(inputs, 3)
+        inputs = tf.reshape(inputs, (self.batch_size, self.num_patches, inputs.shape[1], inputs.shape[2]))
+        inputs = inputs[:10]
+        inputs = tf.transpose(inputs, (0, 2, 1, 3))
+        inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
+        tf.summary.image('cnn_mean_feature/step{}/{}'.format(step, name), inputs)
 
     def conv_model(self, inputs, step, is_training=True, scope=''):
         """
@@ -130,24 +128,24 @@ class MDMModel:
             with scopes.arg_scope([ops.conv2d, ops.fc], is_training=is_training):
                 with scopes.arg_scope([ops.conv2d], activation=tf.nn.relu, padding='VALID'):
                     inputs = ops.conv2d(inputs, 32, [3, 3], scope='conv_1')
-                    self.visualize_cnn(step, inputs, 'conv_1')
+                    self.visualize_cnn_mean(step, inputs, 'conv_1')
                     net['conv_1'] = inputs
 
                     inputs = ops.max_pool(inputs, [2, 2])
-                    self.visualize_cnn(step, inputs, 'pool_1')
+                    self.visualize_cnn_mean(step, inputs, 'pool_1')
                     net['pool_1'] = inputs
 
                     inputs = ops.conv2d(inputs, 32, [3, 3], scope='conv_2')
-                    self.visualize_cnn(step, inputs, 'conv_2')
+                    self.visualize_cnn_mean(step, inputs, 'conv_2')
                     net['conv_2'] = inputs
 
                     inputs = ops.max_pool(inputs, [2, 2])
-                    self.visualize_cnn(step, inputs, 'pool_2')
+                    self.visualize_cnn_mean(step, inputs, 'pool_2')
                     net['pool_2'] = inputs
 
                     crop_size = inputs.get_shape().as_list()[1:3]
                     cropped = utils.get_central_crop(net['conv_2'], box=crop_size)
-                    self.visualize_cnn(step, cropped, 'conv_2_cropped')
+                    self.visualize_cnn_mean(step, cropped, 'conv_2_cropped')
                     net['conv_2_cropped'] = cropped
 
                     inputs = tf.reshape(tf.concat([cropped, inputs], 3), (self.batch_size, -1))

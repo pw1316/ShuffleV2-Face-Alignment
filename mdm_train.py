@@ -194,7 +194,7 @@ def train(scope=''):
         # Start the queue runners.
         tf.train.start_queue_runners(sess=sess)
 
-        summary_writer = tf.summary.FileWriter(FLAGS.train_dir)
+        summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
 
         print('Starting training...')
         for step in range(FLAGS.max_steps):
