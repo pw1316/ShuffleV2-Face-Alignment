@@ -41,10 +41,16 @@ class MDMModel:
         self.rnn = []
 
         for step in range(self.num_iterations):
-            with tf.device('/cpu:0'):
-                patches = extract_patches(self.in_images, tf.constant(self.patch_shape), self.in_init_shapes + self.dx)
-            self.visualize_patches(step, patches)
-            self.patches.append(patches)
+            with tf.name_scope('ExtractPatches'):
+                with tf.device('/cpu:0'):
+                    patches = extract_patches(
+                        self.in_images,
+                        tf.constant(self.patch_shape),
+                        self.in_init_shapes + self.dx,
+                        name='patch{}'.format(step)
+                    )
+                self.visualize_patches(step, patches)
+                self.patches.append(patches)
 
             with tf.variable_scope('convnet', reuse=step > 0):
                 rnn_in, net = self.conv_model(patches, step)
@@ -109,9 +115,10 @@ class MDMModel:
         Returns:
             None
         """
-        inputs = inputs[:10]
-        inputs = tf.transpose(inputs, (0, 2, 1, 3, 4))
-        inputs = tf.reshape(inputs, (1, -1, self.num_patches * self.patch_shape[1], 3))
+        with tf.name_scope('visualize', values=[inputs]):
+            inputs = inputs[:10]
+            inputs = tf.transpose(inputs, (0, 2, 1, 3, 4))
+            inputs = tf.reshape(inputs, (1, -1, self.num_patches * self.patch_shape[1], 3))
         tf.summary.image('patches/step{}'.format(step), inputs)
 
     def visualize_cnn(self, step, inputs, name):
