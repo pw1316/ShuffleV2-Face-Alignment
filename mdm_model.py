@@ -117,8 +117,8 @@ class MDMModel:
             None
         """
         inputs = inputs[:10]
-        inputs = tf.transpose(inputs, (0, 2, 1, 3, 4)),
-        inputs = tf.reshape(inputs, (1, -1, self.num_patches * self.patch_shape[1], 3)),
+        inputs = tf.transpose(inputs, (0, 2, 1, 3, 4))
+        inputs = tf.reshape(inputs, (1, -1, self.num_patches * self.patch_shape[1], 3))
         tf.summary.image('patches/step{}'.format(step), inputs)
 
     def visualize_cnn(self, step, inputs, name):
