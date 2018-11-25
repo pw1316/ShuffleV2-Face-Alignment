@@ -109,31 +109,30 @@ def train(scope=''):
         with tf.device(FLAGS.train_device):
             tf_model = mdm_model.MDMModel(
                 tf_images,
+                tf_shapes,
                 tf_initial_shapes,
                 num_iterations=4,
                 num_patches=FLAGS.num_patches,
                 patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
             )
-            tf_total_loss = 0
-            for i, tf_dx in enumerate(tf_model.dxs):
-                tf_norm_error = mdm_model.normalized_rmse(
-                    tf_dx + tf_initial_shapes,
-                    tf_shapes,
-                    num_patches=FLAGS.num_patches
-                )
-                tf_loss = tf.reduce_mean(tf_norm_error)
-                tf.summary.scalar('losses/step_{}'.format(i), tf_loss)
-                tf_total_loss += tf_loss
+            with tf.name_scope('losses', values=tf_model.dxs + [tf_initial_shapes, tf_shapes]):
+                tf_total_loss = 0
+                for i, tf_dx in enumerate(tf_model.dxs):
+                    with tf.name_scope('step{}'.format(i)):
+                        tf_norm_error = mdm_model.normalized_rmse(
+                            tf_dx + tf_initial_shapes,
+                            tf_shapes,
+                            num_patches=FLAGS.num_patches
+                        )
+                        tf_loss = tf.reduce_mean(tf_norm_error)
+                    tf.summary.scalar('losses/step_{}'.format(i), tf_loss)
+                    tf_total_loss += tf_loss
             tf.summary.scalar('losses/total', tf_total_loss)
             # Calculate the gradients for the batch of data
             tf_grads = opt.compute_gradients(tf_total_loss)
-
-        pred_images, = tf.py_func(utils.batch_draw_landmarks, [tf_images, tf_model.pred], [tf.float32])
-        gt_images, = tf.py_func(utils.batch_draw_landmarks, [tf_images, tf_shapes], [tf.float32])
-        tf.summary.image('images', tf.concat([gt_images, pred_images], 2), max_outputs=5)
         tf.summary.histogram('dx', tf_model.dx)
 
-        batchnorm_updates = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope)
+        bn_updates = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope)
 
         # Add histograms for gradients.
         for grad, var in tf_grads:
@@ -141,7 +140,8 @@ def train(scope=''):
                 tf.summary.histogram(var.op.name + '/gradients', grad)
 
         # Apply the gradients to adjust the shared variables.
-        apply_gradient_op = opt.apply_gradients(tf_grads, global_step=tf_global_step)
+        with tf.name_scope('Optimizer', values=[tf_grads, tf_global_step]):
+            apply_gradient_op = opt.apply_gradients(tf_grads, global_step=tf_global_step)
 
         # Add histograms for trainable variables.
         for var in tf.trainable_variables():
@@ -151,19 +151,18 @@ def train(scope=''):
         # Note that we maintain a "double-average" of the BatchNormalization
         # global statistics. This is more complicated then need be but we employ
         # this for backward-compatibility with our previous models.
-        variable_averages = tf.train.ExponentialMovingAverage(
-            MOVING_AVERAGE_DECAY, tf_global_step)
-
-        # Another possibility is to use tf.slim.get_variables().
-        variables_to_average = (
-            tf.trainable_variables() + tf.moving_average_variables())
-        variables_averages_op = variable_averages.apply(variables_to_average)
+        with tf.name_scope('MovingAverage', values=[tf_global_step]):
+            variable_averages = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY, tf_global_step)
+            variables_to_average = (tf.trainable_variables() + tf.moving_average_variables())
+            variables_averages_op = variable_averages.apply(variables_to_average)
 
         # Group all updates to into a single train op.
         # NOTE: Currently we are not using batchnorm in MDM.
-        batchnorm_updates_op = tf.group(*batchnorm_updates)
-        train_op = tf.group(apply_gradient_op, variables_averages_op,
-                            batchnorm_updates_op)
+        bn_updates_op = tf.group(*bn_updates, name='bn_group')
+        train_op = tf.group(
+            apply_gradient_op, variables_averages_op, bn_updates_op,
+            name='train_group'
+        )
 
         # Create a saver.
         saver = tf.train.Saver()

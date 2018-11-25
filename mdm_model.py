@@ -24,8 +24,9 @@ def normalized_rmse(pred, gt_truth, num_patches=68):
 
 
 class MDMModel:
-    def __init__(self, images, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3):
+    def __init__(self, images, shapes, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3):
         self.in_images = images
+        self.in_shapes = shapes
         self.in_init_shapes = inits
         self.num_iterations = num_iterations
         self.num_patches = num_patches
@@ -33,54 +34,64 @@ class MDMModel:
         self.num_channels = num_channels
 
         self.batch_size = images.get_shape().as_list()[0]
-        self.rnn_hidden = tf.zeros((self.batch_size, 512))
-        self.dx = tf.zeros((self.batch_size, self.num_patches, 2))
         self.dxs = []
         self.patches = []
         self.cnn = []
         self.rnn = []
 
-        for step in range(self.num_iterations):
-            with tf.name_scope('ExtractPatches'):
-                with tf.device('/cpu:0'):
-                    patches = extract_patches(
-                        self.in_images,
-                        tf.constant(self.patch_shape),
-                        self.in_init_shapes + self.dx,
-                        name='patch{}'.format(step)
-                    )
-                self.visualize_patches(step, patches)
-                self.patches.append(patches)
+        with tf.name_scope('Network', values=[self.in_init_shapes]):
+            self.rnn_hidden = tf.zeros((self.batch_size, 512), name='init_state')
+            self.dx = tf.zeros((self.batch_size, self.num_patches, 2), name='init_dx')
+            for step in range(self.num_iterations):
+                with tf.name_scope('ExtractPatches{}'.format(step), values=[self.in_images, self.dx]):
+                    with tf.device('/cpu:0'):
+                        patches = extract_patches(
+                            self.in_images,
+                            tf.constant(self.patch_shape),
+                            self.in_init_shapes + self.dx,
+                            name='patch'
+                        )
+                    self.visualize_patches(step, patches)
+                    self.patches.append(patches)
 
-            with tf.variable_scope('convnet', reuse=step > 0):
-                rnn_in, net = self.conv_model(patches, step)
+                with tf.variable_scope('cnn', reuse=tf.AUTO_REUSE, auxiliary_name_scope=False):
+                    rnn_in, net = self.conv_model(patches, step)
                 self.cnn.append(net)
 
-            with tf.variable_scope('rnn', reuse=step > 0):
-                self.rnn_hidden = tf.layers.dense(tf.concat([rnn_in, self.rnn_hidden], 1), 512, activation=tf.tanh)
-                prediction = tf.layers.dense(self.rnn_hidden, self.num_patches * 2, name='pred', activation=None)
-                prediction = tf.reshape(prediction, (self.batch_size, self.num_patches, 2))
+                with tf.variable_scope('rnn', reuse=tf.AUTO_REUSE, auxiliary_name_scope=False):
+                    with tf.name_scope('mdm_rnn{}'.format(step), values=[rnn_in, self.rnn_hidden]):
+                        self.rnn_hidden = tf.layers.dense(
+                            tf.concat([rnn_in, self.rnn_hidden], 1), 512,
+                            activation=tf.tanh
+                        )
+                        prediction = tf.layers.dense(
+                            self.rnn_hidden, self.num_patches * 2,
+                            name='pred', activation=None
+                        )
+                        prediction = tf.reshape(prediction, (self.batch_size, self.num_patches, 2))
+                        self.dx += prediction
                 self.rnn.append(prediction)
-            self.dx += prediction
-            self.dxs.append(self.dx)
-        self.pred = self.in_init_shapes + self.dx
+                self.dxs.append(self.dx)
+            self.prediction = tf.add(self.in_init_shapes, self.dx, name='prediction')
+            predict_images, = tf.py_func(utils.batch_draw_landmarks, [self.in_images, self.prediction], [tf.float32])
+            original_images, = tf.py_func(utils.batch_draw_landmarks, [self.in_images, self.in_shapes], [tf.float32])
+            concat_images = tf.concat([original_images, predict_images], 2)
+            tf.summary.image('images', concat_images, max_outputs=5)
 
-    def conv_model(self, inputs, step, is_training=True, scope=''):
+    def conv_model(self, inputs, step):
         """
         Construct the CNN
         Args:
             inputs: Tensor with shape [n, num_landmarks, patch_shape, patch_shape, 3]
             step(int): RNN step
-            is_training(bool): Is training or not
-            scope(str): Scope
         Returns:
         """
-        inputs = tf.reshape(
-            inputs,
-            (self.batch_size * self.num_patches, self.patch_shape[0], self.patch_shape[1], self.num_channels)
-        )
         net = {}
-        with tf.name_scope(scope, 'mdm_conv', [inputs]):
+        with tf.name_scope('mdm_conv{}'.format(step), values=[inputs]):
+            inputs = tf.reshape(
+                inputs,
+                (self.batch_size * self.num_patches, self.patch_shape[0], self.patch_shape[1], self.num_channels)
+            )
             inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_1')
             self.visualize_cnn_mean(step, inputs, 'conv_1')
             net['conv_1'] = inputs
@@ -103,7 +114,7 @@ class MDMModel:
             net['conv_2_cropped'] = cropped
 
             inputs = tf.reshape(tf.concat([cropped, inputs], 3), (self.batch_size, -1))
-            net['concat'] = inputs
+        net['concat'] = inputs
         return inputs, net
 
     def visualize_patches(self, step, inputs):
@@ -115,7 +126,7 @@ class MDMModel:
         Returns:
             None
         """
-        with tf.name_scope('visualize{}'.format(step), values=[inputs]):
+        with tf.name_scope('visualize', values=[inputs]):
             inputs = inputs[:10]
             inputs = tf.transpose(inputs, (0, 2, 1, 3, 4))
             inputs = tf.reshape(inputs, (1, -1, self.num_patches * self.patch_shape[1], 3))
@@ -150,9 +161,10 @@ class MDMModel:
         Returns:
             None
         """
-        inputs = tf.reduce_mean(inputs, 3)
-        inputs = tf.reshape(inputs, (self.batch_size, self.num_patches, inputs.shape[1], inputs.shape[2]))
-        inputs = inputs[:10]
-        inputs = tf.transpose(inputs, (0, 2, 1, 3))
-        inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
+        with tf.name_scope('visualize_{}'.format(name), values=[inputs]):
+            inputs = tf.reduce_mean(inputs, 3)
+            inputs = tf.reshape(inputs, (self.batch_size, self.num_patches, inputs.shape[1], inputs.shape[2]))
+            inputs = inputs[:10]
+            inputs = tf.transpose(inputs, (0, 2, 1, 3))
+            inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
         tf.summary.image('cnn_mean_feature/step{}/{}'.format(step, name), inputs)
