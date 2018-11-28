@@ -10,6 +10,7 @@ import menpo.feature
 import menpo.image
 import menpo.io as mio
 import numpy as np
+import os
 import tensorflow as tf
 import detect
 import utils
@@ -213,20 +214,14 @@ def load_image(path, reference_shape, is_training=False, group='PTS',
         path = path.decode('utf-8')
     assert(isinstance(path, str))
     im = mio.import_image(path)
-    bb_root = im.path.parent.relative_to(im.path.parent.parent.parent)
-    if 'set' not in str(bb_root):
-        bb_root = im.path.parent.relative_to(im.path.parent.parent)
+    bb_root = im.path.parent.parent
 
-    im.landmarks['bb'] = mio.import_landmark_file(str(Path('bbs') / bb_root / (
-        im.path.stem + '.pts')))
+    im.landmarks['bb'] = mio.import_landmark_file(str(Path(bb_root / 'BoundingBoxes' / (im.path.stem + '.pts'))))
 
     im = im.crop_to_landmarks_proportion(0.3, group='bb')
     reference_shape = PointCloud(reference_shape)
-
     bb = im.landmarks['bb'].bounding_box()
-
-    im.landmarks['__initial'] = align_shape_with_bounding_box(reference_shape,
-                                                              bb)
+    im.landmarks['__initial'] = align_shape_with_bounding_box(reference_shape, bb)
     im = im.rescale_to_pointcloud(reference_shape, group='__initial')
 
     if mirror_image:
@@ -285,7 +280,6 @@ def batch_inputs(paths,
                  reference_shape,
                  batch_size=32,
                  is_training=False,
-                 num_landmarks=68,
                  mirror_image=False):
     """Reads the files off the disk and produces batches.
 
@@ -295,15 +289,16 @@ def batch_inputs(paths,
       reference_shape: a numpy array [num_landmarks, 2]
       batch_size: the batch size.
       is_training: whether in training mode.
-      num_landmarks: the number of landmarks in the training images.
       mirror_image: mirrors the image and landmarks horizontally.
     Returns:
       images: a tf tensor of shape [batch_size, width, height, 3].
       lms: a tf tensor of shape [batch_size, num_landmarks, 2].
       lms_init: a tf tensor of shape [batch_size, num_landmarks, 2].
     """
-
-    files = tf.concat([list(map(str, sorted(Path(d).parent.glob(Path(d).name)))) for d in paths], 0)
+    _files = [list(map(str, sorted(Path(d).parent.glob(Path(d).name)))) for d in paths]
+    for i, _ in enumerate(_files):
+        _files[i] = list(filter(lambda x: os.path.exists(x[:-4] + '.pts'), _files[i]))
+    files = tf.concat(_files, 0)
 
     filename_queue = tf.train.string_input_producer(files,
                                                     shuffle=is_training,
@@ -325,8 +320,8 @@ def batch_inputs(paths,
     if is_training:
         image = distort_color(image)
 
-    lms = tf.reshape(lms, [num_landmarks, 2])
-    lms_init = tf.reshape(lms_init, [num_landmarks, 2])
+    lms = tf.reshape(lms, reference_shape.shape)
+    lms_init = tf.reshape(lms_init, reference_shape.shape)
 
     images, lms, inits, shapes = tf.train.batch(
                                     [image, lms, lms_init, tf.shape(image)],
