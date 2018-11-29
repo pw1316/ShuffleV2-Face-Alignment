@@ -11,17 +11,17 @@ import menpo
 import menpo.io as mio
 from menpo.shape.pointcloud import PointCloud
 
-FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_float('lr', 0.001, """Initial learning rate.""")
-tf.app.flags.DEFINE_float('lr_decay_steps', 15000, """Learning rate decay steps.""")
-tf.app.flags.DEFINE_float('lr_decay_rate', 0.1, """Learning rate decay rate.""")
-tf.app.flags.DEFINE_integer('batch_size', 60, """The batch size to use.""")
-tf.app.flags.DEFINE_integer('num_threads', 4, """How many pre-process threads to use.""")
-tf.app.flags.DEFINE_string('train_dir', 'ckpt/train', """Log out directory.""")
-tf.app.flags.DEFINE_string('pre_trained_dir', '', """Restore pre-trained model.""")
-tf.app.flags.DEFINE_integer('max_steps', 100000, """Number of batches to run.""")
-tf.app.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
-tf.app.flags.DEFINE_string(
+FLAGS = tf.flags.FLAGS
+tf.flags.DEFINE_float('lr', 0.001, """Initial learning rate.""")
+tf.flags.DEFINE_float('lr_decay_steps', 15000, """Learning rate decay steps.""")
+tf.flags.DEFINE_float('lr_decay_rate', 0.1, """Learning rate decay rate.""")
+tf.flags.DEFINE_integer('batch_size', 60, """The batch size to use.""")
+tf.flags.DEFINE_integer('num_threads', 4, """How many pre-process threads to use.""")
+tf.flags.DEFINE_string('train_dir', 'ckpt/train', """Log out directory.""")
+tf.flags.DEFINE_string('pre_trained_dir', '', """Restore pre-trained model.""")
+tf.flags.DEFINE_integer('max_steps', 100000, """Number of batches to run.""")
+tf.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
+tf.flags.DEFINE_string(
     'datasets',
     ':'.join(
         ('Dataset/LFPW/trainset/Images/*.png',
@@ -31,8 +31,8 @@ tf.app.flags.DEFINE_string(
     ),
     """Directory where to write event logs and checkpoint."""
 )
-tf.app.flags.DEFINE_integer('num_patches', 68, 'Landmark number')
-tf.app.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
+tf.flags.DEFINE_integer('num_patches', 68, 'Landmark number')
+tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
 
 # The decay to use for the moving average.
 MOVING_AVERAGE_DECAY = 0.9999

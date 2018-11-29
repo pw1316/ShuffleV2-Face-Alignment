@@ -14,7 +14,7 @@ import tensorflow as tf
 import detect
 import utils
 
-FLAGS = tf.app.flags.FLAGS
+FLAGS = tf.flags.FLAGS
 
 
 def build_reference_shape(paths, diagonal=200):

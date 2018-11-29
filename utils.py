@@ -215,7 +215,7 @@ def extract_patches(pixels, centres, sampling_grid=default_sampling_grid):
     patch_grid = (sampling_grid[None, :, :, :] + centres[:, None, None, :]
                   ).astype('int32')
 
-    X = patch_grid[:, :, :, 0].clip(0, max_x)
-    Y = patch_grid[:, :, :, 1].clip(0, max_y)
+    x = patch_grid[:, :, :, 0].clip(0, max_x)
+    y = patch_grid[:, :, :, 1].clip(0, max_y)
 
-    return pixels[:, X, Y].transpose(1, 2, 3, 0)
+    return pixels[:, x, y].transpose(1, 2, 3, 0)
