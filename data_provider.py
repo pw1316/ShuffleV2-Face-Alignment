@@ -1,7 +1,6 @@
 from functools import partial
 from menpo.shape.pointcloud import PointCloud
 from menpofit.builder import compute_reference_shape
-from menpofit.builder import rescale_images_to_reference_shape
 from menpofit.fitter import (noisy_shape_from_bounding_box,
                              align_shape_with_bounding_box)
 from pathlib import Path
@@ -36,8 +35,7 @@ def build_reference_shape(paths, diagonal=200):
             if group.n_points == FLAGS.num_patches
         ]
 
-    return compute_reference_shape(landmarks,
-                                   diagonal=diagonal).points.astype(np.float32)
+    return compute_reference_shape(landmarks, diagonal=diagonal).points.astype(np.float32)
 
 
 def grey_to_rgb(im):
@@ -124,6 +122,54 @@ def get_noisy_init_from_bb(reference_shape, bb, noise_percentage=.02):
         )
 
     return align_shape_with_bounding_box(reference_shape, bb).points
+
+
+def preload_images(paths, group=None, verbose=True):
+    """Pre-load input images and return essentials
+    Args:
+      paths: a list of strings containing the data directories.
+      group: landmark group containing the grounth truth landmarks.
+      verbose: boolean, print debugging info.
+    Returns:
+      image_paths: a list of path of images.
+      image_shape: Minimum shape to contain all train image [C, H, W]
+      mean_shape: a numpy array [num_landmarks, 2].
+      shape_gen: PCAModel, a shape generator.
+    """
+    train_dir = Path(FLAGS.train_dir)
+    image_paths = []
+    shapes = []
+    bbs = []
+    mean_shape = PointCloud(build_reference_shape(paths))
+    mio.export_pickle(mean_shape.points, train_dir / 'reference_shape.pkl', overwrite=True)
+    print('created reference_shape.pkl')
+
+    # [C, H, W]
+    image_shape = [3, 0, 0]
+    for path in paths:
+        if verbose:
+            print('Importing data from {}'.format(path))
+
+        for im in mio.import_images(path, verbose=verbose, as_generator=True):
+            group = group or im.landmarks.group_labels[0]
+            bb_root = im.path.parent.parent
+            try:
+                lms = mio.import_landmark_file(str(Path(bb_root / 'BoundingBoxes' / (im.path.stem + '.pts'))))
+            except ValueError:
+                print('skip')
+                continue
+            im.landmarks['bb'] = lms
+            im = im.crop_to_landmarks_proportion(0.3, group='bb')
+            im = im.rescale_to_pointcloud(mean_shape, group=group)
+            im = grey_to_rgb(im)
+            assert(im.pixels.shape[0] == image_shape[0])
+            image_shape[1] = max(im.pixels.shape[1], image_shape[1])
+            image_shape[2] = max(im.pixels.shape[2], image_shape[2])
+            image_paths.append(str(im.path))
+            shapes.append(im.landmarks[group])
+            bbs.append(im.landmarks['bb'])
+    pca_model = detect.create_generator(shapes, bbs)
+    return image_paths, image_shape, mean_shape.points, pca_model
 
 
 def load_images(paths, group=None, verbose=True):

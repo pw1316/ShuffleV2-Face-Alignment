@@ -3,10 +3,13 @@ import data_provider
 import mdm_model
 import numpy as np
 import os
+from pathlib import Path
 import tensorflow as tf
 import time
 import utils
 import menpo
+import menpo.io as mio
+from menpo.shape.pointcloud import PointCloud
 
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_float('lr', 0.001, """Initial learning rate.""")
@@ -60,27 +63,46 @@ def train(scope=''):
         opt = tf.train.AdamOptimizer(tf_lr)
 
         train_dirs = FLAGS.datasets.split(':')
-        _images, _shapes, _mean_shape, _pca_model = \
-            data_provider.load_images(train_dirs, verbose=True)
-        assert(_shapes[0].points.shape[0] == FLAGS.num_patches)
+        _image_paths, _image_shape, _mean_shape, _pca_model = \
+            data_provider.preload_images(train_dirs, verbose=True)
         assert(_mean_shape.shape[0] == FLAGS.num_patches)
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='mean_shape')
 
         def get_random_sample(rotation_stddev=10):
-            random_idx = np.random.randint(low=0, high=len(_images))
-            im = menpo.image.Image(_images[random_idx].transpose(2, 0, 1), copy=False)
-            random_shape = _shapes[random_idx]
-            im.landmarks['PTS'] = random_shape
+            # Read a random image with landmarks and bb
+            random_idx = np.random.randint(low=0, high=len(_image_paths))
+            im = mio.import_image(_image_paths[random_idx])
+            bb_root = im.path.parent.parent
+            im.landmarks['bb'] = mio.import_landmark_file(
+                str(Path(bb_root / 'BoundingBoxes' / (im.path.stem + '.pts')))
+            )
+
+            # Align to the same space with mean shape
+            im = im.crop_to_landmarks_proportion(0.3, group='bb')
+            im = im.rescale_to_pointcloud(PointCloud(_mean_shape), group='PTS')
+            im = data_provider.grey_to_rgb(im)
+
+            # Padding to the same size
+            pim = menpo.image.Image(np.random.rand(*_image_shape).astype(np.float32), copy=False)
+            height, width = im.pixels.shape[1:]  # im[C, H, W]
+            dy = max(int((_image_shape[1] - height - 1) / 2), 0)
+            dx = max(int((_image_shape[2] - width - 1) / 2), 0)
+            pts = np.copy(im.landmarks['PTS'].points)
+            pts[:, 0] += dy
+            pts[:, 1] += dx
+            pim.pixels[:, dy:(height + dy), dx:(width + dx)] = im.pixels
+            pim.landmarks['PTS'] = PointCloud(pts)
+
             if np.random.rand() < .5:
-                im = utils.mirror_image(im)
+                pim = utils.mirror_image(pim)
             if np.random.rand() < .5:
                 theta = np.random.normal(scale=rotation_stddev)
-                rot = menpo.transform.rotate_ccw_about_centre(random_shape, theta)
-                im = im.warp_to_shape(im.shape, rot)
+                rot = menpo.transform.rotate_ccw_about_centre(pim.landmarks['PTS'], theta)
+                pim = pim.warp_to_shape(pim.shape, rot)
 
-            random_image = im.pixels.transpose(1, 2, 0).astype('float32')
-            random_shape = im.landmarks['PTS'].points.astype('float32')
+            random_image = pim.pixels.transpose(1, 2, 0).astype('float32')
+            random_shape = pim.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
         with tf.name_scope('data_provider', values=[tf_mean_shape]):
@@ -90,9 +112,9 @@ def train(scope=''):
                 name='random_sample'
             )
             tf_initial_shape = data_provider.random_shape(tf_shape, tf_mean_shape, _pca_model)
-            tf_image.set_shape(_images[0].shape)
-            tf_shape.set_shape(_shapes[0].points.shape)
-            tf_initial_shape.set_shape(_shapes[0].points.shape)
+            tf_image.set_shape(_image_shape[1:] + _image_shape[:1])
+            tf_shape.set_shape(_mean_shape.shape)
+            tf_initial_shape.set_shape(_mean_shape.shape)
             tf_image = data_provider.distort_color(tf_image)
 
             tf_images, tf_shapes, tf_initial_shapes = tf.train.batch(
