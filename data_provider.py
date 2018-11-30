@@ -13,6 +13,7 @@ import os
 import tensorflow as tf
 import detect
 import utils
+import random
 
 FLAGS = tf.flags.FLAGS
 
@@ -124,17 +125,110 @@ def get_noisy_init_from_bb(reference_shape, bb, noise_percentage=.02):
     return align_shape_with_bounding_box(reference_shape, bb).points
 
 
+def prepare_images(paths, group=None, verbose=True):
+    """Save Train Images to TFRecord
+    Args:
+        paths: a list of strings containing the data directories.
+        group: landmark group containing the ground truth landmarks.
+        verbose: boolean, print debugging info.
+    Returns:
+        None
+    """
+    train_dir = Path(FLAGS.train_dir)
+    image_paths = []
+    reference_shape = PointCloud(build_reference_shape(paths))
+    mio.export_pickle(reference_shape.points, train_dir / 'reference_shape.pkl', overwrite=True)
+    print('created reference_shape.pkl')
+
+    image_shape = [0, 0, 3]  # [H, W, C]
+    with tf.io.TFRecordWriter('pca.bin') as ofs:
+        for path in paths:
+            if verbose:
+                print('Importing data from {}'.format(path))
+
+            for image in mio.import_images(path, verbose=verbose, as_generator=True):
+                group = group or image.landmarks.group_labels[0]
+
+                bb_root = image.path.parent.parent
+                try:
+                    landmark = mio.import_landmark_file(
+                        str(Path(bb_root / 'BoundingBoxes' / (image.path.stem + '.pts')))
+                    )
+                except ValueError:
+                    print('skip')
+                    continue
+                image.landmarks['bb'] = landmark
+                image = image.crop_to_landmarks_proportion(0.3, group='bb')
+                image = image.rescale_to_pointcloud(reference_shape, group=group)
+                image = grey_to_rgb(image)
+                assert(image.pixels.shape[0] == image_shape[2])
+                image_shape[0] = max(image.pixels.shape[1], image_shape[0])
+                image_shape[1] = max(image.pixels.shape[2], image_shape[1])
+                image_paths.append(image.path)
+                features = tf.train.Features(
+                    feature={
+                        'pca/shapes': tf.train.Feature(
+                            float_list=tf.train.FloatList(value=image.landmarks[group].points.flatten())
+                        ),
+                        'pca/bbs': tf.train.Feature(
+                            float_list=tf.train.FloatList(value=image.landmarks['bb'].points.flatten())
+                        ),
+                    }
+                )
+                ofs.write(tf.train.Example(features=features).SerializeToString())
+
+    # Random shuffle
+    random.shuffle(image_paths)
+
+    print('padded shape', image_shape)
+    with tf.io.TFRecordWriter('train.bin') as ofs:
+        print('Preparing train data...')
+        for image_path in image_paths:
+            print('\rPreparing {}'.format(image_path), end='     ')
+            image = mio.import_image(image_path)
+            group = group or image.landmarks.group_labels[0]
+            bb_root = image.path.parent.parent
+            image.landmarks['bb'] = mio.import_landmark_file(
+                str(Path(bb_root / 'BoundingBoxes' / (image.path.stem + '.pts')))
+            )
+            image = image.crop_to_landmarks_proportion(0.3, group='bb')
+            image = image.rescale_to_pointcloud(reference_shape, group=group)
+            image = grey_to_rgb(image)
+
+            # Padding to the same size
+            padded_image = np.random.rand(*image_shape).astype(np.float32)
+            height, width = image.pixels.shape[1:]  # [C, H, W]
+            dy = max(int((image_shape[0] - height - 1) / 2), 0)
+            dx = max(int((image_shape[1] - width - 1) / 2), 0)
+            padded_landmark = image.landmarks[group].points
+            padded_landmark[:, 0] += dy
+            padded_landmark[:, 1] += dx
+            padded_image[dy:(height + dy), dx:(width + dx), :] = image.pixels.transpose(1, 2, 0)
+            features = tf.train.Features(
+                feature={
+                    'train/image': tf.train.Feature(
+                        bytes_list=tf.train.BytesList(value=[tf.compat.as_bytes(padded_image.tostring())])
+                    ),
+                    'train/shape': tf.train.Feature(
+                        float_list=tf.train.FloatList(value=padded_landmark.flatten())
+                    )
+                }
+            )
+            ofs.write(tf.train.Example(features=features).SerializeToString())
+        print('')
+
+
 def preload_images(paths, group=None, verbose=True):
     """Pre-load input images and return essentials
     Args:
-      paths: a list of strings containing the data directories.
-      group: landmark group containing the grounth truth landmarks.
-      verbose: boolean, print debugging info.
+        paths: a list of strings containing the data directories.
+        group: landmark group containing the ground truth landmarks.
+        verbose: boolean, print debugging info.
     Returns:
-      image_paths: a list of path of images.
-      image_shape: Minimum shape to contain all train image [C, H, W]
-      mean_shape: a numpy array [num_landmarks, 2].
-      shape_gen: PCAModel, a shape generator.
+        image_paths: a list of path of images.
+        image_shape: Minimum shape to contain all train image [C, H, W]
+        mean_shape: a numpy array [num_landmarks, 2].
+        shape_gen: PCAModel, a shape generator.
     """
     train_dir = Path(FLAGS.train_dir)
     image_paths = []
@@ -176,14 +270,14 @@ def load_images(paths, group=None, verbose=True):
     """Loads and rescales input images to the diagonal of the reference shape.
 
     Args:
-      paths: a list of strings containing the data directories.
-      group: landmark group containing the grounth truth landmarks.
-      verbose: boolean, print debugging info.
+        paths: a list of strings containing the data directories.
+        group: landmark group containing the ground truth landmarks.
+        verbose: boolean, print debugging info.
     Returns:
-      images: a list of numpy arrays containing images.
-      shapes: a list of the ground truth landmarks.
-      reference_shape: a numpy array [num_landmarks, 2].
-      shape_gen: PCAModel, a shape generator.
+        images: a list of numpy arrays containing images.
+        shapes: a list of the ground truth landmarks.
+        reference_shape: a numpy array [num_landmarks, 2].
+        shape_gen: PCAModel, a shape generator.
     """
     images = []
     shapes = []
