@@ -64,7 +64,7 @@ def train(scope=''):
         # Create an optimizer that performs gradient descent.
         opt = tf.train.AdamOptimizer(tf_lr)
 
-        # data_provider.prepare_images(FLAGS.datasets.split(':'), verbose=True)
+        data_provider.prepare_images(FLAGS.datasets.split(':'), verbose=True)
         _mean_shape = mio.import_pickle(Path(FLAGS.train_dir) / 'reference_shape.pkl')
         with open('meta.txt', 'r') as ifs:
             _image_shape = list(map(lambda x: int(x), ifs.read().split(' ')))
