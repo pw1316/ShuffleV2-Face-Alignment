@@ -1,3 +1,4 @@
+from functools import partial
 from datetime import datetime
 import data_provider
 import mdm_model
@@ -9,6 +10,7 @@ import time
 import utils
 import menpo
 import menpo.io as mio
+import detect
 from menpo.shape.pointcloud import PointCloud
 
 FLAGS = tf.flags.FLAGS
@@ -62,70 +64,74 @@ def train(scope=''):
         # Create an optimizer that performs gradient descent.
         opt = tf.train.AdamOptimizer(tf_lr)
 
-        train_dirs = FLAGS.datasets.split(':')
-        _image_paths, _image_shape, _mean_shape, _pca_model = \
-            data_provider.preload_images(train_dirs, verbose=True)
+        # data_provider.prepare_images(FLAGS.datasets.split(':'), verbose=True)
+        _mean_shape = mio.import_pickle(Path(FLAGS.train_dir) / 'reference_shape.pkl')
+        with open('meta.txt', 'r') as ifs:
+            _image_shape = list(map(lambda x: int(x), ifs.read().split(' ')))
+        assert(isinstance(_mean_shape, np.ndarray))
+        _pca_shapes = []
+        _pca_bbs = []
+        for item in tf.io.tf_record_iterator('pca.bin'):
+            example = tf.train.Example()
+            example.ParseFromString(item)
+            _pca_shape = np.array(example.features.feature['pca/shape'].float_list.value).reshape((-1, 2))
+            _pca_bb = np.array(example.features.feature['pca/bb'].float_list.value).reshape((-1, 2))
+            _pca_shapes.append(PointCloud(_pca_shape))
+            _pca_bbs.append(PointCloud(_pca_bb))
+        _pca_model = detect.create_generator(_pca_shapes, _pca_bbs)
         assert(_mean_shape.shape[0] == FLAGS.num_patches)
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='mean_shape')
 
-        def get_random_sample(rotation_stddev=10):
+        def decode_feature(serialized):
+            feature = {
+                'train/image': tf.FixedLenFeature([], tf.string),
+                'train/shape': tf.VarLenFeature(tf.float32),
+            }
+            features = tf.parse_single_example(serialized, features=feature)
+            decoded_image = tf.decode_raw(features['train/image'], tf.float32)
+            decoded_image = tf.reshape(decoded_image, _image_shape)
+            decoded_shape = tf.sparse.to_dense(features['train/shape'])
+            decoded_shape = tf.reshape(decoded_shape, (FLAGS.num_patches, 2))
+            return decoded_image, decoded_shape
+
+        def get_random_sample(image, shape, rotation_stddev=10):
             # Read a random image with landmarks and bb
-            random_idx = np.random.randint(low=0, high=len(_image_paths))
-            im = mio.import_image(_image_paths[random_idx])
-            bb_root = im.path.parent.parent
-            im.landmarks['bb'] = mio.import_landmark_file(
-                str(Path(bb_root / 'BoundingBoxes' / (im.path.stem + '.pts')))
-            )
-
-            # Align to the same space with mean shape
-            im = im.crop_to_landmarks_proportion(0.3, group='bb')
-            im = im.rescale_to_pointcloud(PointCloud(_mean_shape), group='PTS')
-            im = data_provider.grey_to_rgb(im)
-
-            # Padding to the same size
-            pim = menpo.image.Image(np.random.rand(*_image_shape).astype(np.float32), copy=False)
-            height, width = im.pixels.shape[1:]  # im[C, H, W]
-            dy = max(int((_image_shape[1] - height - 1) / 2), 0)
-            dx = max(int((_image_shape[2] - width - 1) / 2), 0)
-            pts = np.copy(im.landmarks['PTS'].points)
-            pts[:, 0] += dy
-            pts[:, 1] += dx
-            pim.pixels[:, dy:(height + dy), dx:(width + dx)] = im.pixels
-            pim.landmarks['PTS'] = PointCloud(pts)
+            image = menpo.image.Image(image.transpose((2, 0, 1)), copy=False)
+            image.landmarks['PTS'] = PointCloud(shape)
 
             if np.random.rand() < .5:
-                pim = utils.mirror_image(pim)
+                image = utils.mirror_image(image)
             if np.random.rand() < .5:
                 theta = np.random.normal(scale=rotation_stddev)
-                rot = menpo.transform.rotate_ccw_about_centre(pim.landmarks['PTS'], theta)
-                pim = pim.warp_to_shape(pim.shape, rot)
+                rot = menpo.transform.rotate_ccw_about_centre(image.landmarks['PTS'], theta)
+                image = image.warp_to_shape(image.shape, rot)
 
-            random_image = pim.pixels.transpose(1, 2, 0).astype('float32')
-            random_shape = pim.landmarks['PTS'].points.astype('float32')
+            random_image = image.pixels.transpose(1, 2, 0).astype('float32')
+            random_shape = image.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
-        with tf.name_scope('data_provider', values=[tf_mean_shape]):
-            tf_image, tf_shape = tf.py_func(
-                get_random_sample, [], [tf.float32, tf.float32],
-                stateful=True,
-                name='random_sample'
-            )
-            tf_initial_shape = data_provider.random_shape(tf_shape, tf_mean_shape, _pca_model)
-            tf_image.set_shape(_image_shape[1:] + _image_shape[:1])
-            tf_shape.set_shape(_mean_shape.shape)
-            tf_initial_shape.set_shape(_mean_shape.shape)
-            tf_image = data_provider.distort_color(tf_image)
+        def get_random_init_shape(image, shape, mean_shape, pca):
+            return image, shape, data_provider.random_shape(shape, mean_shape, pca)
 
-            tf_images, tf_shapes, tf_initial_shapes = tf.train.batch(
-                [tf_image, tf_shape, tf_initial_shape],
-                FLAGS.batch_size,
-                dynamic_pad=False,
-                capacity=5000,
-                enqueue_many=False,
-                num_threads=FLAGS.num_threads,
-                name='batch'
+        def distort_color(image, shape, init_shape):
+            return data_provider.distort_color(image), shape, init_shape
+
+        with tf.name_scope('data_provider', values=[tf_mean_shape]):
+            tf_dataset = tf.data.TFRecordDataset(['train.bin'])
+            tf_dataset = tf_dataset.map(decode_feature)
+            tf_dataset = tf_dataset.map(
+                lambda x, y: tf.py_func(
+                    get_random_sample, [x, y], [tf.float32, tf.float32],
+                    stateful=True,
+                    name='random_sample'
+                )
             )
+            tf_dataset = tf_dataset.map(partial(get_random_init_shape, mean_shape=tf_mean_shape, pca=_pca_model))
+            tf_dataset = tf_dataset.map(distort_color)
+            tf_dataset = tf_dataset.batch(FLAGS.batch_size)
+            tf_iterator = tf_dataset.make_one_shot_iterator()
+            tf_images, tf_shapes, tf_initial_shapes = tf_iterator.get_next(name='batch')
 
         print('Defining model...')
         with tf.device(FLAGS.train_device):

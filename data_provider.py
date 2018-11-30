@@ -167,10 +167,10 @@ def prepare_images(paths, group=None, verbose=True):
                 image_paths.append(image.path)
                 features = tf.train.Features(
                     feature={
-                        'pca/shapes': tf.train.Feature(
+                        'pca/shape': tf.train.Feature(
                             float_list=tf.train.FloatList(value=image.landmarks[group].points.flatten())
                         ),
-                        'pca/bbs': tf.train.Feature(
+                        'pca/bb': tf.train.Feature(
                             float_list=tf.train.FloatList(value=image.landmarks['bb'].points.flatten())
                         ),
                     }
@@ -216,6 +216,10 @@ def prepare_images(paths, group=None, verbose=True):
             )
             ofs.write(tf.train.Example(features=features).SerializeToString())
         print('')
+
+    with open('meta.txt', 'w') as ofs:
+        for s in image_shape:
+            ofs.write('{} '.format(s))
 
 
 def preload_images(paths, group=None, verbose=True):
