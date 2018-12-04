@@ -69,43 +69,42 @@ def flip_predictions(predictions, shapes):
 
 
 def evaluate():
-    """Evaluate model on Dataset for a number of steps."""
     with tf.Graph().as_default(), tf.device('/cpu:0'):
         ckpt_dir = Path(FLAGS.ckpt_dir)
         reference_shape = mio.import_pickle(ckpt_dir / 'reference_shape.pkl')
 
-        images, gt_truth, inits, _ = data_provider.batch_inputs(
+        tf_images, tf_shapes, tf_inits, _ = data_provider.batch_inputs(
                 [FLAGS.dataset], reference_shape,
                 batch_size=FLAGS.batch_size, is_training=False)
 
-        images_m, _, inits_m, shapes = data_provider.batch_inputs(
+        tf_images_m, _, tf_inits_m, tf_image_shape = data_provider.batch_inputs(
             [FLAGS.dataset], reference_shape,
             batch_size=FLAGS.batch_size, is_training=False, mirror_image=True)
 
         print('Loading model...')
         with tf.device(FLAGS.device):
             model = mdm_model.MDMModel(
-                images, gt_truth, inits,
+                tf_images, tf_shapes, tf_inits,
                 num_iterations=4,
                 num_patches=FLAGS.num_patches,
                 patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
             )
             tf.get_variable_scope().reuse_variables()
             model_m = mdm_model.MDMModel(
-                images_m, gt_truth, inits_m,
+                tf_images_m, tf_shapes, tf_inits_m,
                 num_iterations=4,
                 num_patches=FLAGS.num_patches,
                 patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
             )
-
+        tf_predictions = model.prediction
         if FLAGS.use_mirror:
-            avg_pred = model.prediction + tf.py_func(flip_predictions, (model_m.prediction, shapes), (tf.float32, ))[0]
-            avg_pred /= 2.
-        else:
-            avg_pred = model.prediction
+            tf_predictions += tf.py_func(
+                flip_predictions, (model_m.prediction, tf_image_shape), (tf.float32, )
+            )[0]
+            tf_predictions /= 2.
 
         # Calculate predictions.
-        norm_error = model.normalized_rmse(avg_pred, gt_truth)
+        tf_nme = model.normalized_rmse(tf_predictions, tf_shapes)
 
         # Restore the moving average version of the learned variables for eval.
         variable_averages = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY)
@@ -140,21 +139,19 @@ def evaluate():
                 for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
                     threads.extend(qr.create_threads(sess, coord=coord, daemon=True, start=True))
 
-                num_iter = FLAGS.num_examples
+                num_iter = int(FLAGS.num_examples / FLAGS.batch_size)
                 # Counts the number of correct predictions.
                 errors = []
 
-                total_sample_count = num_iter
+                total_sample_count = int(num_iter * FLAGS.batch_size)
                 step = 0
 
                 print('%s: starting evaluation on (%s).' % (datetime.now(), FLAGS.dataset))
                 start_time = time.time()
                 while step < num_iter and not coord.should_stop():
-                    rmse = sess.run(norm_error)
-                    # img_op = tf.get_default_graph().get_tensor_by_name('Network/concat:0')
-                    # img = sess.run(img_op)
-                    # print(img.shape)
-                    # plt.imsave('step{}.png'.format(step), img[0])
+                    rmse, img = sess.run([tf_nme, model.concat_images])
+                    error_level = int(rmse[0] * 100)
+                    plt.imsave('err{}/step{}.png'.format(error_level, step), img[0])
                     errors.append(rmse)
                     step += 1
                     if step % 20 == 0:
