@@ -17,13 +17,6 @@ def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
     return tf.image.resize_bilinear(tf.expand_dims(im, 0), new_size)[0, :, :, :], align_mean_shape / ratio, ratio
 
 
-def normalized_rmse(pred, gt_truth, num_patches=68):
-    l, r = utils.norm_idx(num_patches)
-    assert(l is not None and r is not None)
-    norm = tf.sqrt(tf.reduce_sum(((gt_truth[:, l, :] - gt_truth[:, r, :])**2), 1))
-    return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * num_patches)
-
-
 class MDMModel:
     def __init__(self, images, shapes, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3):
         self.in_images = images
@@ -76,8 +69,8 @@ class MDMModel:
             self.prediction = tf.add(self.in_init_shapes, self.dx, name='prediction')
             predict_images, = tf.py_func(utils.batch_draw_landmarks, [self.in_images, self.prediction], [tf.float32])
             original_images, = tf.py_func(utils.batch_draw_landmarks, [self.in_images, self.in_shapes], [tf.float32])
-            concat_images = tf.concat([original_images, predict_images], 2)
-            tf.summary.image('images', concat_images, max_outputs=5)
+            self.concat_images = tf.concat([original_images, predict_images], 2)
+            tf.summary.image('images', self.concat_images, max_outputs=5)
 
     def conv_model(self, inputs, step):
         """
@@ -169,3 +162,9 @@ class MDMModel:
             inputs = tf.transpose(inputs, (0, 2, 1, 3))
             inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
         tf.summary.image('cnn_mean_feature/step{}/{}'.format(step, name), inputs)
+
+    def normalized_rmse(self, pred, gt_truth):
+        l, r = utils.norm_idx(self.num_patches)
+        assert (l is not None and r is not None)
+        norm = tf.sqrt(tf.reduce_sum(((gt_truth[:, l, :] - gt_truth[:, r, :]) ** 2), 1))
+        return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * self.num_patches)

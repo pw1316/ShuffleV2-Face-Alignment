@@ -8,12 +8,11 @@ from datetime import datetime
 from pathlib import Path
 
 import data_provider
-import math
 import menpo
 import matplotlib
+import matplotlib.pyplot as plt
 import mdm_model
 import numpy as np
-import os
 import tensorflow as tf
 import time
 import utils
@@ -32,6 +31,7 @@ tf.flags.DEFINE_string('device', '/cpu:0', 'the device to eval on.')
 tf.flags.DEFINE_integer('batch_size', 1, """The batch size to use.""")
 tf.flags.DEFINE_integer('num_patches', 68, 'Landmark number')
 tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
+tf.flags.DEFINE_boolean('use_mirror', True, 'Use mirror evaluation')
 # The decay to use for the moving average.
 MOVING_AVERAGE_DECAY = 0.9999
 
@@ -96,6 +96,10 @@ def _eval_once(saver, summary_writer, rmse_op, summary_op):
             start_time = time.time()
             while step < num_iter and not coord.should_stop():
                 rmse = sess.run(rmse_op)
+                # img_op = tf.get_default_graph().get_tensor_by_name('Network/concat:0')
+                # img = sess.run(img_op)
+                # print(img.shape)
+                # plt.imsave('step{}.png'.format(step), img[0])
                 errors.append(rmse)
                 step += 1
                 if step % 20 == 0:
@@ -178,11 +182,14 @@ def evaluate():
                 patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
             )
 
-        avg_pred = model.prediction + tf.py_func(flip_predictions, (model_m.prediction, shapes), (tf.float32, ))[0]
-        avg_pred /= 2.
+        if FLAGS.use_mirror:
+            avg_pred = model.prediction + tf.py_func(flip_predictions, (model_m.prediction, shapes), (tf.float32, ))[0]
+            avg_pred /= 2.
+        else:
+            avg_pred = model.prediction
 
         # Calculate predictions.
-        norm_error = mdm_model.normalized_rmse(avg_pred, gt_truth, num_patches=FLAGS.num_patches)
+        norm_error = model.normalized_rmse(avg_pred, gt_truth)
 
         # Restore the moving average version of the learned variables for eval.
         variable_averages = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY)

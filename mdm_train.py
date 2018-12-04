@@ -149,11 +149,7 @@ def train(scope=''):
                 tf_total_loss = 0
                 for i, tf_dx in enumerate(tf_model.dxs):
                     with tf.name_scope('step{}'.format(i)):
-                        tf_norm_error = mdm_model.normalized_rmse(
-                            tf_dx + tf_initial_shapes,
-                            tf_shapes,
-                            num_patches=FLAGS.num_patches
-                        )
+                        tf_norm_error = tf_model.normalized_rmse(tf_dx + tf_initial_shapes, tf_shapes)
                         tf_loss = tf.reduce_mean(tf_norm_error)
                     tf.summary.scalar('losses/step_{}'.format(i), tf_loss)
                     tf_total_loss += tf_loss
