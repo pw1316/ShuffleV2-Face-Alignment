@@ -4,6 +4,7 @@ import utils
 extract_patches_module = tf.load_op_library('extract_patches_op/extract_patches.so')
 extract_patches = extract_patches_module.extract_patches
 tf.NotDifferentiable('ExtractPatches')
+FLAGS = tf.flags.FLAGS
 
 
 def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
@@ -33,7 +34,7 @@ class MDMModel:
         self.patch_shape = patch_shape
         self.num_channels = num_channels
 
-        self.batch_size = images.get_shape().as_list()[0]
+        self.batch_size = FLAGS.batch_size
         self.dxs = []
         self.patches = []
         self.cnn = []
