@@ -22,16 +22,16 @@ import menpo.io as mio
 # Do not use a gui toolkit for matlotlib.
 matplotlib.use('Agg')
 
-FLAGS = tf.app.flags.FLAGS
-
-tf.app.flags.DEFINE_string('eval_dir', 'ckpt/eval', """Directory where to write event logs.""")
-tf.app.flags.DEFINE_string('ckpt_dir', 'ckpt/test/', """Directory where to read model checkpoints.""")
+FLAGS = tf.flags.FLAGS
+tf.flags.DEFINE_string('eval_dir', 'ckpt/eval', """Directory where to write event logs.""")
+tf.flags.DEFINE_string('ckpt_dir', 'ckpt/test/', """Directory where to read model checkpoints.""")
 # Flags governing the data used for the eval.
-tf.app.flags.DEFINE_integer('num_examples', 2731, """Number of examples to run.""")
-tf.app.flags.DEFINE_string('dataset', 'Dataset/DDETEST/Images/*.png', """The dataset path to evaluate.""")
-tf.app.flags.DEFINE_string('device', '/cpu:0', 'the device to eval on.')
-tf.app.flags.DEFINE_integer('num_patches', 68, 'Landmark number')
-tf.app.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
+tf.flags.DEFINE_integer('num_examples', 2731, """Number of examples to run.""")
+tf.flags.DEFINE_string('dataset', 'Dataset/DDETEST/Images/*.png', """The dataset path to evaluate.""")
+tf.flags.DEFINE_string('device', '/cpu:0', 'the device to eval on.')
+tf.flags.DEFINE_integer('batch_size', 1, """The batch size to use.""")
+tf.flags.DEFINE_integer('num_patches', 68, 'Landmark number')
+tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
 # The decay to use for the moving average.
 MOVING_AVERAGE_DECAY = 0.9999
 
@@ -148,18 +148,18 @@ def flip_predictions(predictions, shapes):
     return np.array(flipped_preds, np.float32)
 
 
-def evaluate(dataset):
+def evaluate():
     """Evaluate model on Dataset for a number of steps."""
     with tf.Graph().as_default(), tf.device('/cpu:0'):
         ckpt_dir = Path(FLAGS.ckpt_dir)
         reference_shape = mio.import_pickle(ckpt_dir / 'reference_shape.pkl')
 
         images, gt_truth, inits, _ = data_provider.batch_inputs(
-                [dataset], reference_shape,
+                [FLAGS.dataset], reference_shape,
                 batch_size=1, is_training=False)
 
         images_m, _, inits_m, shapes = data_provider.batch_inputs(
-            [dataset], reference_shape,
+            [FLAGS.dataset], reference_shape,
             batch_size=1, is_training=False, mirror_image=True)
 
         print('Loading model...')
@@ -198,4 +198,4 @@ def evaluate(dataset):
 
 
 if __name__ == '__main__':
-    evaluate(FLAGS.dataset)
+    evaluate()

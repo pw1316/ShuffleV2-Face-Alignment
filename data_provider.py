@@ -218,56 +218,9 @@ def prepare_images(paths, group=None, verbose=True):
         print('')
 
     with open('meta.txt', 'w') as ofs:
-        for s in image_shape:
+        for s in image_shape[:-1]:
             ofs.write('{} '.format(s))
-
-
-def preload_images(paths, group=None, verbose=True):
-    """Pre-load input images and return essentials
-    Args:
-        paths: a list of strings containing the data directories.
-        group: landmark group containing the ground truth landmarks.
-        verbose: boolean, print debugging info.
-    Returns:
-        image_paths: a list of path of images.
-        image_shape: Minimum shape to contain all train image [C, H, W]
-        mean_shape: a numpy array [num_landmarks, 2].
-        shape_gen: PCAModel, a shape generator.
-    """
-    train_dir = Path(FLAGS.train_dir)
-    image_paths = []
-    shapes = []
-    bbs = []
-    mean_shape = PointCloud(build_reference_shape(paths))
-    mio.export_pickle(mean_shape.points, train_dir / 'reference_shape.pkl', overwrite=True)
-    print('created reference_shape.pkl')
-
-    # [C, H, W]
-    image_shape = [3, 0, 0]
-    for path in paths:
-        if verbose:
-            print('Importing data from {}'.format(path))
-
-        for im in mio.import_images(path, verbose=verbose, as_generator=True):
-            group = group or im.landmarks.group_labels[0]
-            bb_root = im.path.parent.parent
-            try:
-                lms = mio.import_landmark_file(str(Path(bb_root / 'BoundingBoxes' / (im.path.stem + '.pts'))))
-            except ValueError:
-                print('skip')
-                continue
-            im.landmarks['bb'] = lms
-            im = im.crop_to_landmarks_proportion(0.3, group='bb')
-            im = im.rescale_to_pointcloud(mean_shape, group=group)
-            im = grey_to_rgb(im)
-            assert(im.pixels.shape[0] == image_shape[0])
-            image_shape[1] = max(im.pixels.shape[1], image_shape[1])
-            image_shape[2] = max(im.pixels.shape[2], image_shape[2])
-            image_paths.append(str(im.path))
-            shapes.append(im.landmarks[group])
-            bbs.append(im.landmarks['bb'])
-    pca_model = detect.create_generator(shapes, bbs)
-    return image_paths, image_shape, mean_shape.points, pca_model
+        ofs.write('{}'.format(image_shape[-1]))
 
 
 def load_images(paths, group=None, verbose=True):
