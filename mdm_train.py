@@ -130,7 +130,7 @@ def train(scope=''):
             )
             tf_dataset = tf_dataset.map(partial(get_random_init_shape, mean_shape=tf_mean_shape, pca=_pca_model))
             tf_dataset = tf_dataset.map(distort_color)
-            tf_dataset = tf_dataset.batch(FLAGS.batch_size)
+            tf_dataset = tf_dataset.batch(FLAGS.batch_size, True)
             tf_dataset = tf_dataset.prefetch(3000)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes, tf_initial_shapes = tf_iterator.get_next(name='batch')
