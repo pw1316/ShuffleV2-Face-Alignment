@@ -150,7 +150,7 @@ def evaluate():
                 start_time = time.time()
                 while step < num_iter and not coord.should_stop():
                     rmse, img = sess.run([tf_nme, model.concat_images])
-                    error_level = int(rmse[0] * 100)
+                    error_level = min(9, int(rmse[0] * 100))
                     plt.imsave('err{}/step{}.png'.format(error_level, step), img[0])
                     errors.append(rmse)
                     step += 1
