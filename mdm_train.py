@@ -23,17 +23,9 @@ tf.flags.DEFINE_string('train_dir', 'ckpt/train', """Log out directory.""")
 tf.flags.DEFINE_string('pre_trained_dir', '', """Restore pre-trained model.""")
 tf.flags.DEFINE_integer('max_steps', 100000, """Number of batches to run.""")
 tf.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
-tf.flags.DEFINE_string(
-    'datasets',
-    ':'.join(
-        ('Dataset/LFPW/trainset/Images/*.png',
-         'Dataset/AFW/Images/*.jpg',
-         'Dataset/HELEN/trainset/Images/*.jpg'
-         )
-    ),
-    """Directory where to write event logs and checkpoint."""
+tf.flags.DEFINE_string('datasets', 'Dataset/FW2/Images/*.png', """Dataset split by ':'"""
 )
-tf.flags.DEFINE_integer('num_patches', 68, 'Landmark number')
+tf.flags.DEFINE_integer('num_patches', 73, 'Landmark number')
 tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
 
 # The decay to use for the moving average.
@@ -141,7 +133,7 @@ def train(scope=''):
                 tf_images,
                 tf_shapes,
                 tf_initial_shapes,
-                num_iterations=4,
+                num_iterations=5,
                 num_patches=FLAGS.num_patches,
                 patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
             )
