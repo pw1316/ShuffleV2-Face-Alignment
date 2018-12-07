@@ -39,6 +39,23 @@ def build_reference_shape(paths, diagonal=200):
     return compute_reference_shape(landmarks, diagonal=diagonal).points.astype(np.float32)
 
 
+def build_reference_shape_ex(paths, diagonal=200):
+    """Builds the reference shape.
+
+    Args:
+      paths: train image paths.
+      diagonal: the diagonal of the reference shape in pixels.
+    Returns:
+      the reference shape.
+    """
+    landmarks = []
+    for path in paths:
+        group = mio.import_landmark_file(path.parent / (path.stem + '.pts'))
+        if group.n_points == FLAGS.num_patches:
+            landmarks += [group]
+    return compute_reference_shape(landmarks, diagonal=diagonal).points.astype(np.float32)
+
+
 def grey_to_rgb(im):
     """Converts menpo Image to rgb if greyscale
 
@@ -134,93 +151,152 @@ def prepare_images(paths, group=None, verbose=True):
     Returns:
         None
     """
-    train_dir = Path(FLAGS.train_dir)
+    if len(paths) == 0:
+        return
+    # .../<Dataset>/Images/*.png -> .../<Dataset>
+    path_base = Path(paths[0]).parent.parent
     image_paths = []
-    reference_shape = PointCloud(build_reference_shape(paths))
-    mio.export_pickle(reference_shape.points, train_dir / 'reference_shape.pkl', overwrite=True)
-    print('created reference_shape.pkl')
 
+    # First: get all image paths
+    for path in paths:
+        for file in Path('.').glob(path):
+            try:
+                mio.import_landmark_file(
+                    str(Path(file.parent.parent / 'BoundingBoxes' / (file.stem + '.pts')))
+                )
+            except ValueError:
+                continue
+            image_paths.append(file)
+    print('Got all image paths...')
+
+    # Second: split to train, test and validate. 7:2:1
+    if Path(path_base / 'train_img.txt').exists():
+        with Path(path_base / 'train_img.txt').open('rb') as train_ifs, \
+                Path(path_base / 'test_img.txt').open('rb') as test_ifs, \
+                Path(path_base / 'val_img.txt').open('rb') as val_ifs:
+            train_paths = [Path(line[:-1].decode('utf-8')) for line in train_ifs.readlines()]
+            test_paths = [Path(line[:-1].decode('utf-8')) for line in test_ifs.readlines()]
+            val_paths = [Path(line[:-1].decode('utf-8')) for line in val_ifs.readlines()]
+    else:
+        random.shuffle(image_paths)
+        num_train = int(len(image_paths) * 0.7)
+        num_test = int(len(image_paths) * 0.2)
+        train_paths = sorted(image_paths[:num_train])
+        test_paths = sorted(image_paths[num_train:num_train+num_test])
+        val_paths = sorted(image_paths[num_train+num_test:])
+        with Path(path_base / 'train_img.txt').open('wb') as train_ofs, \
+                Path(path_base / 'test_img.txt').open('wb') as test_ofs, \
+                Path(path_base / 'val_img.txt').open('wb') as val_ofs:
+            train_ofs.writelines([str(line).encode('utf-8') + b'\n' for line in train_paths])
+            test_ofs.writelines([str(line).encode('utf-8') + b'\n' for line in test_paths])
+            val_ofs.writelines([str(line).encode('utf-8') + b'\n' for line in val_paths])
+    print('Found Train/Test/Validate {}/{}/{}'.format(len(train_paths), len(test_paths), len(val_paths)))
+
+    # Third: export reference shape on train
+    if Path(path_base / 'reference_shape.pkl').exists():
+        reference_shape = PointCloud(mio.import_pickle(path_base / 'reference_shape.pkl'))
+    else:
+        reference_shape = PointCloud(build_reference_shape_ex(train_paths))
+        mio.export_pickle(reference_shape.points, path_base / 'reference_shape.pkl', overwrite=True)
+    print('Created reference_shape.pkl')
+
+    # Fourth: image shape & pca
     image_shape = [0, 0, 3]  # [H, W, C]
-    with tf.io.TFRecordWriter('pca.bin') as ofs:
-        for path in paths:
-            if verbose:
-                print('Importing data from {}'.format(path))
-
-            for image in mio.import_images(path, verbose=verbose, as_generator=True):
-                group = group or image.landmarks.group_labels[0]
-
-                bb_root = image.path.parent.parent
-                try:
-                    landmark = mio.import_landmark_file(
-                        str(Path(bb_root / 'BoundingBoxes' / (image.path.stem + '.pts')))
-                    )
-                except ValueError:
-                    print('skip')
-                    continue
-                image.landmarks['bb'] = landmark
-                image = image.crop_to_landmarks_proportion(0.3, group='bb')
-                image = image.rescale_to_pointcloud(reference_shape, group=group)
-                image = grey_to_rgb(image)
-                assert(image.pixels.shape[0] == image_shape[2])
-                image_shape[0] = max(image.pixels.shape[1], image_shape[0])
-                image_shape[1] = max(image.pixels.shape[2], image_shape[1])
-                image_paths.append(image.path)
+    if Path(path_base / 'pca.bin').exists() and Path(path_base / 'meta.txt').exists():
+        with Path(path_base / 'meta.txt').open('r') as ifs:
+            image_shape = [int(x) for x in ifs.read().split(' ')]
+    else:
+        with tf.io.TFRecordWriter(str(path_base / 'pca.bin')) as ofs:
+            counter = 0
+            for path in train_paths:
+                counter += 1
+                if verbose:
+                    status = 10.0 * counter / len(train_paths)
+                    status_str = '\rPreparing {:2.2f}%['.format(status * 10)
+                    for i in range(int(status)):
+                        status_str += '='
+                    for i in range(int(status), 10):
+                        status_str += ' '
+                    status_str += '] {}     '.format(path)
+                    print(status_str, end='')
+                mp_image = mio.import_image(path)
+                group = group or mp_image.landmarks.group_labels[0]
+                mp_image.landmarks['bb'] = mio.import_landmark_file(
+                    str(Path(mp_image.path.parent.parent / 'BoundingBoxes' / (mp_image.path.stem + '.pts')))
+                )
+                mp_image = mp_image.crop_to_landmarks_proportion(0.3, group='bb')
+                mp_image = mp_image.rescale_to_pointcloud(reference_shape, group=group)
+                mp_image = grey_to_rgb(mp_image)
+                assert(mp_image.pixels.shape[0] == image_shape[2])
+                image_shape[0] = max(mp_image.pixels.shape[1], image_shape[0])
+                image_shape[1] = max(mp_image.pixels.shape[2], image_shape[1])
                 features = tf.train.Features(
                     feature={
                         'pca/shape': tf.train.Feature(
-                            float_list=tf.train.FloatList(value=image.landmarks[group].points.flatten())
+                            float_list=tf.train.FloatList(value=mp_image.landmarks[group].points.flatten())
                         ),
                         'pca/bb': tf.train.Feature(
-                            float_list=tf.train.FloatList(value=image.landmarks['bb'].points.flatten())
+                            float_list=tf.train.FloatList(value=mp_image.landmarks['bb'].points.flatten())
                         ),
                     }
                 )
                 ofs.write(tf.train.Example(features=features).SerializeToString())
+            if verbose:
+                print('')
+        with Path(path_base / 'meta.txt').open('w') as ofs:
+            for s in image_shape[:-1]:
+                ofs.write('{} '.format(s))
+            ofs.write('{}'.format(image_shape[-1]))
+    print('Image shape', image_shape)
 
-    # Random shuffle
-    random.shuffle(image_paths)
-
-    print('padded shape', image_shape)
-    with tf.io.TFRecordWriter('train.bin') as ofs:
-        print('Preparing train data...')
-        for image_path in image_paths:
-            print('\rPreparing {}'.format(image_path), end='     ')
-            image = mio.import_image(image_path)
-            group = group or image.landmarks.group_labels[0]
-            bb_root = image.path.parent.parent
-            image.landmarks['bb'] = mio.import_landmark_file(
-                str(Path(bb_root / 'BoundingBoxes' / (image.path.stem + '.pts')))
-            )
-            image = image.crop_to_landmarks_proportion(0.3, group='bb')
-            image = image.rescale_to_pointcloud(reference_shape, group=group)
-            image = grey_to_rgb(image)
-
-            # Padding to the same size
-            padded_image = np.random.rand(*image_shape).astype(np.float32)
-            height, width = image.pixels.shape[1:]  # [C, H, W]
-            dy = max(int((image_shape[0] - height - 1) / 2), 0)
-            dx = max(int((image_shape[1] - width - 1) / 2), 0)
-            padded_landmark = image.landmarks[group].points
-            padded_landmark[:, 0] += dy
-            padded_landmark[:, 1] += dx
-            padded_image[dy:(height + dy), dx:(width + dx), :] = image.pixels.transpose(1, 2, 0)
-            features = tf.train.Features(
-                feature={
-                    'train/image': tf.train.Feature(
-                        bytes_list=tf.train.BytesList(value=[tf.compat.as_bytes(padded_image.tostring())])
-                    ),
-                    'train/shape': tf.train.Feature(
-                        float_list=tf.train.FloatList(value=padded_landmark.flatten())
-                    )
-                }
-            )
-            ofs.write(tf.train.Example(features=features).SerializeToString())
-        print('')
-
-    with open('meta.txt', 'w') as ofs:
-        for s in image_shape[:-1]:
-            ofs.write('{} '.format(s))
-        ofs.write('{}'.format(image_shape[-1]))
+    # Fifth: data
+    if Path(path_base / 'train.bin').exists():
+        pass
+    else:
+        random.shuffle(train_paths)
+        with tf.io.TFRecordWriter(str(path_base / 'train.bin')) as ofs:
+            print('Preparing train data...')
+            counter = 0
+            for path in train_paths:
+                counter += 1
+                if verbose:
+                    status = 10.0 * counter / len(train_paths)
+                    status_str = '\rPreparing {:2.2f}%['.format(status * 10)
+                    for i in range(int(status)):
+                        status_str += '='
+                    for i in range(int(status), 10):
+                        status_str += ' '
+                    status_str += '] {}     '.format(path)
+                    print(status_str, end='')
+                mp_image = mio.import_image(path)
+                mp_image.landmarks['bb'] = mio.import_landmark_file(
+                    str(Path(mp_image.path.parent.parent / 'BoundingBoxes' / (mp_image.path.stem + '.pts')))
+                )
+                mp_image = mp_image.crop_to_landmarks_proportion(0.3, group='bb')
+                mp_image = mp_image.rescale_to_pointcloud(reference_shape, group=group)
+                mp_image = grey_to_rgb(mp_image)
+                # Padding to the same size
+                height, width = mp_image.pixels.shape[1:]  # [C, H, W]
+                dy = max(int((image_shape[0] - height - 1) / 2), 0)
+                dx = max(int((image_shape[1] - width - 1) / 2), 0)
+                padded_image = np.random.rand(*image_shape).astype(np.float32)
+                padded_image[dy:(height + dy), dx:(width + dx), :] = mp_image.pixels.transpose(1, 2, 0)
+                padded_landmark = mp_image.landmarks[group].points
+                padded_landmark[:, 0] += dy
+                padded_landmark[:, 1] += dx
+                features = tf.train.Features(
+                    feature={
+                        'train/image': tf.train.Feature(
+                            bytes_list=tf.train.BytesList(value=[tf.compat.as_bytes(padded_image.tostring())])
+                        ),
+                        'train/shape': tf.train.Feature(
+                            float_list=tf.train.FloatList(value=padded_landmark.flatten())
+                        )
+                    }
+                )
+                ofs.write(tf.train.Example(features=features).SerializeToString())
+            if verbose:
+                print('')
 
 
 def load_images(paths, group=None, verbose=True):

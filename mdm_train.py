@@ -56,13 +56,14 @@ def train(scope=''):
         opt = tf.train.AdamOptimizer(tf_lr)
 
         data_provider.prepare_images(FLAGS.datasets.split(':'), verbose=True)
-        _mean_shape = mio.import_pickle(Path(FLAGS.train_dir) / 'reference_shape.pkl')
-        with open('meta.txt', 'r') as ifs:
-            _image_shape = list(map(lambda x: int(x), ifs.read().split(' ')))
+        path_base = Path(FLAGS.datasets.split(':')[0]).parent.parent
+        _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
+        with Path(path_base / 'meta.txt').open('r') as ifs:
+            _image_shape = [int(x) for x in ifs.read().split(' ')]
         assert(isinstance(_mean_shape, np.ndarray))
         _pca_shapes = []
         _pca_bbs = []
-        for item in tf.io.tf_record_iterator('pca.bin'):
+        for item in tf.io.tf_record_iterator(str(path_base / 'pca.bin')):
             example = tf.train.Example()
             example.ParseFromString(item)
             _pca_shape = np.array(example.features.feature['pca/shape'].float_list.value).reshape((-1, 2))
@@ -109,7 +110,7 @@ def train(scope=''):
             return data_provider.distort_color(image), shape, init_shape
 
         with tf.name_scope('data_provider', values=[tf_mean_shape]):
-            tf_dataset = tf.data.TFRecordDataset(['train.bin'])
+            tf_dataset = tf.data.TFRecordDataset([str(path_base / 'train.bin')])
             tf_dataset = tf_dataset.repeat()
             tf_dataset = tf_dataset.map(decode_feature)
             tf_dataset = tf_dataset.map(
