@@ -23,8 +23,7 @@ tf.flags.DEFINE_string('train_dir', 'ckpt/train', """Log out directory.""")
 tf.flags.DEFINE_string('pre_trained_dir', '', """Restore pre-trained model.""")
 tf.flags.DEFINE_integer('max_steps', 100000, """Number of batches to run.""")
 tf.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
-tf.flags.DEFINE_string('datasets', 'Dataset/FW2/Images/*.png', """Dataset split by ':'"""
-)
+tf.flags.DEFINE_string('datasets', 'Dataset/FW2/Images/*.png', """Dataset split by ':'""")
 tf.flags.DEFINE_integer('num_patches', 73, 'Landmark number')
 tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
 
