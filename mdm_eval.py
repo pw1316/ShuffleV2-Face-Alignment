@@ -23,13 +23,13 @@ matplotlib.use('Agg')
 
 FLAGS = tf.flags.FLAGS
 tf.flags.DEFINE_string('eval_dir', 'ckpt/eval', """Directory where to write event logs.""")
-tf.flags.DEFINE_string('ckpt_dir', 'ckpt/test/', """Directory where to read model checkpoints.""")
+tf.flags.DEFINE_string('ckpt_dir', 'ckpt/train/', """Directory where to read model checkpoints.""")
 # Flags governing the data used for the eval.
 tf.flags.DEFINE_integer('num_examples', 2731, """Number of examples to run.""")
 tf.flags.DEFINE_string('dataset', 'Dataset/DDETEST/Images/*.png', """The dataset path to evaluate.""")
 tf.flags.DEFINE_string('device', '/cpu:0', 'the device to eval on.')
 tf.flags.DEFINE_integer('batch_size', 1, """The batch size to use.""")
-tf.flags.DEFINE_integer('num_patches', 68, 'Landmark number')
+tf.flags.DEFINE_integer('num_patches', 73, 'Landmark number')
 tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
 tf.flags.DEFINE_boolean('use_mirror', False, 'Use mirror evaluation')
 # The decay to use for the moving average.
