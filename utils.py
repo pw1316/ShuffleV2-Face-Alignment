@@ -1,5 +1,6 @@
 import numpy as np
 from menpo.shape import PointCloud
+import cv2
 
 # ===== 68 =====
 jaw_indices = np.arange(0, 17)
@@ -114,7 +115,7 @@ def mirror_image_bb(im):
 
 def line(image, x0, y0, x1, y1, color):
     steep = False
-    if x0 < 0 or x0 >= 400 or x1 < 0 or x1 >= 400 or y0 < 0 or y0 >= 400 or y1 < 0 or y1 >= 400:
+    if x0 < 0 or x0 >= image.shape[1] or x1 < 0 or x1 >= image.shape[1] or y0 < 0 or y0 >= image.shape[0] or y1 < 0 or y1 >= image.shape[0]:
         return
 
     if abs(x0 - x1) < abs(y0 - y1):
@@ -171,6 +172,17 @@ def draw_landmarks(img, lms):
 
 def batch_draw_landmarks(imgs, lms):
     return np.array([draw_landmarks(img, l) for img, l in zip(imgs, lms)])
+
+
+def draw_landmarks_discrete(img, lms):
+    img = img.copy()
+    for v in lms:
+        cv2.circle(img, (v[1], v[0]), 2, (255, 0, 0), 2)
+    return img
+
+
+def batch_draw_landmarks_discrete(imgs, lms):
+    return np.array([draw_landmarks_discrete(img, l) for img, l in zip(imgs, lms)])
 
 
 def get_central_crop(images, box=(6, 6)):

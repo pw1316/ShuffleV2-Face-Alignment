@@ -103,8 +103,19 @@ def evaluate():
             )[0]
             tf_predictions /= 2.
 
+        tf_predict_images, = tf.py_func(
+            utils.batch_draw_landmarks_discrete,
+            [tf_images, model.prediction], [tf.float32]
+        )
+        tf_original_images, = tf.py_func(
+            utils.batch_draw_landmarks_discrete,
+            [tf_images, tf_shapes], [tf.float32])
+        tf_concat_images = tf.concat([tf_original_images, tf_predict_images], 2)
+
         # Calculate predictions.
-        tf_nme = model.normalized_rmse(tf_predictions, tf_shapes)
+        # tf_nme = model.normalized_rmse(tf_predictions, tf_shapes)
+        tf_ne = model.normalized_error(tf_predictions, tf_shapes)
+        tf_nme = model.normalized_mean_error(tf_ne)
 
         # Restore the moving average version of the learned variables for eval.
         variable_averages = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY)
@@ -142,6 +153,7 @@ def evaluate():
                 num_iter = int(FLAGS.num_examples / FLAGS.batch_size)
                 # Counts the number of correct predictions.
                 errors = []
+                mean_errors = []
 
                 total_sample_count = int(num_iter * FLAGS.batch_size)
                 step = 0
@@ -149,10 +161,11 @@ def evaluate():
                 print('%s: starting evaluation on (%s).' % (datetime.now(), FLAGS.dataset))
                 start_time = time.time()
                 while step < num_iter and not coord.should_stop():
-                    rmse, img = sess.run([tf_nme, model.concat_images])
+                    rmse, rse, img = sess.run([tf_nme, tf_ne, tf_concat_images])
                     error_level = min(9, int(rmse[0] * 100))
                     plt.imsave('err{}/step{}.png'.format(error_level, step), img[0])
-                    errors.append(rmse)
+                    errors.append(rse)
+                    mean_errors.append(rmse)
                     step += 1
                     if step % 20 == 0:
                         duration = time.time() - start_time
@@ -162,17 +175,31 @@ def evaluate():
                         print(log_str.format(datetime.now(), step, num_iter, examples_per_sec, sec_per_batch))
                         start_time = time.time()
 
-                errors = np.vstack(errors).ravel()
-                mean_rmse = errors.mean()
-                auc_at_08 = (errors < .08).mean()
-                auc_at_05 = (errors < .05).mean()
-                ced_image = plot_ced([errors.tolist()])
+                errors = np.array(errors)
+                errors = np.reshape(errors, (-1, FLAGS.num_patches))
+                print(errors.shape)
+                mean_errors = np.vstack(mean_errors).ravel()
+                mean_rse = np.mean(errors, 0)
+                mean_rmse = mean_errors.mean()
+                with open('errors.txt', 'w') as ofs:
+                    for row, avg in zip(errors, mean_errors):
+                        for col in row:
+                            ofs.write('%.4f, ' % col)
+                        ofs.write('%.4f' % avg)
+                        ofs.write('\n')
+                    for col in mean_rse:
+                        ofs.write('%.4f, ' % col)
+                    ofs.write('%.4f' % mean_rmse)
+                    ofs.write('\n')
+                auc_at_08 = (mean_errors < .08).mean()
+                auc_at_05 = (mean_errors < .05).mean()
+                ced_image = plot_ced([mean_errors.tolist()])
                 ced_plot = sess.run(tf.summary.merge([tf.summary.image('ced_plot', ced_image[None, ...])]))
 
-                print('Errors', errors.shape)
+                print('Errors', mean_errors.shape)
                 print(
                     '%s: mean_rmse = %.4f, auc @ 0.05 = %.4f, auc @ 0.08 = %.4f [%d examples]' %
-                    (datetime.now(), errors.mean(), auc_at_05, auc_at_08, total_sample_count)
+                    (datetime.now(), mean_errors.mean(), auc_at_05, auc_at_08, total_sample_count)
                 )
 
                 summary = tf.Summary()

@@ -168,3 +168,12 @@ class MDMModel:
         assert (l is not None and r is not None)
         norm = tf.sqrt(tf.reduce_sum(((gt_truth[:, l, :] - gt_truth[:, r, :]) ** 2), 1))
         return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * self.num_patches)
+
+    def normalized_error(self, pred, gt_truth):
+        l, r = utils.norm_idx(self.num_patches)
+        assert (l is not None and r is not None)
+        norm = tf.sqrt(tf.reduce_sum(((gt_truth[:, l, :] - gt_truth[:, r, :]) ** 2), 1))
+        return tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)) / norm
+
+    def normalized_mean_error(self, n_error):
+        return tf.reduce_sum(n_error, 1) / self.num_patches
