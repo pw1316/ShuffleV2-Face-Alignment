@@ -12,8 +12,9 @@ import numpy as np
 import tensorflow as tf
 import time
 import utils
+import math
+from menpo.shape.pointcloud import PointCloud
 import menpo.io as mio
-import menpo.image as mimg
 
 extract_patches_module = tf.load_op_library('extract_patches_op/extract_patches.so')
 extract_patches = extract_patches_module.extract_patches
@@ -80,7 +81,14 @@ def influence():
                 mp_image.landmarks['bb'] = mio.import_landmark_file(
                     str(Path(path.parent.parent / 'BoundingBoxes' / (path.stem + '.pts')))
                 )
-                mp_image = mp_image.crop_to_landmarks_proportion(0.3, group='bb')
+                ly, lx = mp_image.landmarks['bb'].points[0]
+                hy, hx = mp_image.landmarks['bb'].points[2]
+                cx = (lx + hx) / 2
+                cy = (ly + hy) / 2
+                bb_size = int(math.ceil(max(hx - lx, hy - ly)))
+                square_bb = np.array([[cy - bb_size / 2, cx - bb_size / 2], [cy + bb_size / 2, cx + bb_size / 2]])
+                mp_image.landmarks['square_bb'] = PointCloud(square_bb)
+                mp_image = mp_image.crop_to_landmarks_proportion(0.3, group='square_bb')
                 mp_image = mp_image.rescale_to_diagonal(320)
 
                 np_image = mp_image.pixels.transpose((1, 2, 0))
@@ -90,8 +98,8 @@ def influence():
                 prediction, = sess.run(tf_prediction, feed_dict={
                     tf_image: np_image,
                     # grab the upper-left and lower-down points of the bounding box.
-                    tf_init: np_init[[0, 2]].ravel()}
-                )
+                    tf_init: np_init[[0, 2]].ravel()
+                })
                 error = normalized_error(prediction, mp_image.landmarks['PTS'].points)
                 mean_error = normalized_mean_error(error)
                 error_level = min(9, int(mean_error * 100))
