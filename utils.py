@@ -177,7 +177,7 @@ def batch_draw_landmarks(imgs, lms):
 def draw_landmarks_discrete(img, lms):
     img = img.copy()
     for v in lms:
-        cv2.circle(img, (v[1], v[0]), 1, (1, 1, 0), -1)
+        cv2.circle(img, (int(v[1]), int(v[0])), 1, (1, 1, 0), -1)
     return img
 
 
