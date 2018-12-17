@@ -133,6 +133,7 @@ def train(scope=''):
                 tf_images,
                 tf_shapes,
                 tf_initial_shapes,
+                batch_size=FLAGS.batch_size,
                 num_iterations=5,
                 num_patches=FLAGS.num_patches,
                 patch_shape=(FLAGS.patch_size, FLAGS.patch_size)

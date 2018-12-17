@@ -4,7 +4,6 @@ import utils
 extract_patches_module = tf.load_op_library('extract_patches_op/extract_patches.so')
 extract_patches = extract_patches_module.extract_patches
 tf.NotDifferentiable('ExtractPatches')
-FLAGS = tf.flags.FLAGS
 
 
 def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
@@ -18,7 +17,11 @@ def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
 
 
 class MDMModel:
-    def __init__(self, images, shapes, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3):
+    def __init__(
+            self, images, shapes, inits,
+            batch_size=60, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3,
+            is_training=True
+    ):
         self.in_images = images
         self.in_shapes = shapes
         self.in_init_shapes = inits
@@ -26,8 +29,9 @@ class MDMModel:
         self.num_patches = num_patches
         self.patch_shape = patch_shape
         self.num_channels = num_channels
+        self.is_training = is_training
 
-        self.batch_size = FLAGS.batch_size
+        self.batch_size = batch_size
         self.dxs = []
         self.patches = []
         self.cnn = []
@@ -45,7 +49,7 @@ class MDMModel:
                             self.in_init_shapes + self.dx,
                             name='patch'
                         )
-                    self.visualize_patches(step, patches)
+                    # self.visualize_patches(step, patches)
                     self.patches.append(patches)
 
                 with tf.variable_scope('cnn', reuse=tf.AUTO_REUSE, auxiliary_name_scope=False):
@@ -86,28 +90,43 @@ class MDMModel:
                 inputs,
                 (self.batch_size * self.num_patches, self.patch_shape[0], self.patch_shape[1], self.num_channels)
             )
-            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_1')
+            # Convolution 1 (n*73,30,30,3)
+            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_1')
+            inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_1')
+            inputs = tf.nn.relu(inputs, name='relu_1')
             self.visualize_cnn_mean(step, inputs, 'conv_1')
             net['conv_1'] = inputs
-
             inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
-            self.visualize_cnn_mean(step, inputs, 'pool_1')
             net['pool_1'] = inputs
+            # Convolution 1 (n*73,14,14,32)
 
-            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_2')
+            # Convolution 2 (n*73,14,14,32)
+            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_2')
+            inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_2')
+            inputs = tf.nn.relu(inputs, name='relu_2')
             self.visualize_cnn_mean(step, inputs, 'conv_2')
             net['conv_2'] = inputs
-
             inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
-            self.visualize_cnn_mean(step, inputs, 'pool_2')
             net['pool_2'] = inputs
+            # Convolution 2 (n*73,6,6,32)
 
+            # Convolution 3 (n*73,6,6,32)
+            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_3')
+            inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_3')
+            inputs = tf.nn.relu(inputs, name='relu_3')
+            self.visualize_cnn_mean(step, inputs, 'conv_3')
+            net['conv_3'] = inputs
+            inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
+            net['pool_3'] = inputs
             crop_size = inputs.get_shape().as_list()[1:3]
-            cropped = utils.get_central_crop(net['conv_2'], box=crop_size)
-            self.visualize_cnn_mean(step, cropped, 'conv_2_cropped')
-            net['conv_2_cropped'] = cropped
+            cropped = utils.get_central_crop(net['conv_3'], box=crop_size)
+            net['conv_3_cropped'] = cropped
+            inputs = tf.concat([cropped, inputs], 3)
+            # Convolution 3 (n*73,2,2,64)
 
-            inputs = tf.reshape(tf.concat([cropped, inputs], 3), (self.batch_size, -1))
+            # Flatten (n*73,2,2,64)
+            inputs = tf.reshape(inputs, (self.batch_size, -1))
+            # Flatten (n,73*2*2*64)
         net['concat'] = inputs
         return inputs, net
 
