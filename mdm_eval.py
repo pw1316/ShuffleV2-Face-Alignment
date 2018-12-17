@@ -22,8 +22,8 @@ import menpo.io as mio
 matplotlib.use('Agg')
 
 FLAGS = tf.flags.FLAGS
-tf.flags.DEFINE_string('eval_dir', 'ckpt/eval_split', """Directory where to write event logs.""")
-tf.flags.DEFINE_string('ckpt_dir', 'ckpt/mdm-20181210-5-level-split/', """Directory where to read model checkpoints.""")
+tf.flags.DEFINE_string('eval_dir', 'ckpt/eval', """Directory where to write event logs.""")
+tf.flags.DEFINE_string('ckpt_dir', 'ckpt/train/', """Directory where to read model checkpoints.""")
 # Flags governing the data used for the eval.
 tf.flags.DEFINE_integer('num_examples', 4135, """Number of examples to run.""")
 tf.flags.DEFINE_string('dataset', 'Dataset/FW2/test_img.txt', """The dataset path to evaluate.""")
