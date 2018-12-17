@@ -22,12 +22,12 @@ import menpo.io as mio
 matplotlib.use('Agg')
 
 FLAGS = tf.flags.FLAGS
-tf.flags.DEFINE_string('eval_dir', 'ckpt/eval', """Directory where to write event logs.""")
-tf.flags.DEFINE_string('ckpt_dir', 'ckpt/train/', """Directory where to read model checkpoints.""")
+tf.flags.DEFINE_string('eval_dir', 'ckpt/eval_split', """Directory where to write event logs.""")
+tf.flags.DEFINE_string('ckpt_dir', 'ckpt/mdm-20181210-5-level-split/', """Directory where to read model checkpoints.""")
 # Flags governing the data used for the eval.
-tf.flags.DEFINE_integer('num_examples', 2731, """Number of examples to run.""")
-tf.flags.DEFINE_string('dataset', 'Dataset/DDETEST/Images/*.png', """The dataset path to evaluate.""")
-tf.flags.DEFINE_string('device', '/cpu:0', 'the device to eval on.')
+tf.flags.DEFINE_integer('num_examples', 4135, """Number of examples to run.""")
+tf.flags.DEFINE_string('dataset', 'Dataset/FW2/test_img.txt', """The dataset path to evaluate.""")
+tf.flags.DEFINE_string('device', '/gpu:0', 'the device to eval on.')
 tf.flags.DEFINE_integer('batch_size', 1, """The batch size to use.""")
 tf.flags.DEFINE_integer('num_patches', 73, 'Landmark number')
 tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
@@ -70,15 +70,14 @@ def flip_predictions(predictions, shapes):
 
 def evaluate():
     with tf.Graph().as_default(), tf.device('/cpu:0'):
-        ckpt_dir = Path(FLAGS.ckpt_dir)
-        reference_shape = mio.import_pickle(ckpt_dir / 'reference_shape.pkl')
+        reference_shape = mio.import_pickle(Path(FLAGS.ckpt_dir) / 'reference_shape.pkl')
 
         tf_images, tf_shapes, tf_inits, _ = data_provider.batch_inputs(
-                [FLAGS.dataset], reference_shape,
+                FLAGS.dataset, reference_shape,
                 batch_size=FLAGS.batch_size, is_training=False)
 
         tf_images_m, _, tf_inits_m, tf_image_shape = data_provider.batch_inputs(
-            [FLAGS.dataset], reference_shape,
+            FLAGS.dataset, reference_shape,
             batch_size=FLAGS.batch_size, is_training=False, mirror_image=True)
 
         print('Loading model...')

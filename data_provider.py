@@ -468,10 +468,15 @@ def batch_inputs(paths,
       lms: a tf tensor of shape [batch_size, num_landmarks, 2].
       lms_init: a tf tensor of shape [batch_size, num_landmarks, 2].
     """
-    _files = [list(map(str, sorted(Path(d).parent.glob(Path(d).name)))) for d in paths]
-    for i, _ in enumerate(_files):
-        _files[i] = list(filter(lambda x: os.path.exists(x[:-4] + '.pts'), _files[i]))
-    files = tf.concat(_files, 0)
+    if isinstance(paths, list):
+        _files = [list(map(str, sorted(Path(d).parent.glob(Path(d).name)))) for d in paths]
+        for i, _ in enumerate(_files):
+            _files[i] = list(filter(lambda x: os.path.exists(x[:-4] + '.pts'), _files[i]))
+        files = tf.concat(_files, 0)
+    else:
+        with open(paths, 'r') as ifs:
+            _files = ifs.read().split('\n')[:-1]
+        files = list(filter(lambda x: os.path.exists(x[:-4] + '.pts'), _files))
 
     filename_queue = tf.train.string_input_producer(files,
                                                     shuffle=is_training,
