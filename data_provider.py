@@ -1,4 +1,3 @@
-from functools import partial
 from menpo.shape.pointcloud import PointCloud
 from menpofit.builder import compute_reference_shape
 from menpofit.fitter import (noisy_shape_from_bounding_box,
@@ -9,10 +8,8 @@ import menpo.feature
 import menpo.image
 import menpo.io as mio
 import numpy as np
-import os
 import tensorflow as tf
 import detect
-import utils
 import random
 
 FLAGS = tf.flags.FLAGS
@@ -249,7 +246,7 @@ def prepare_images(paths, group=None, verbose=True):
             ofs.write('{}'.format(image_shape[-1]))
     print('Image shape', image_shape)
 
-    # Fifth: data
+    # Fifth: train data
     if Path(path_base / 'train.bin').exists():
         pass
     else:
@@ -281,7 +278,7 @@ def prepare_images(paths, group=None, verbose=True):
                 dx = max(int((image_shape[1] - width - 1) / 2), 0)
                 padded_image = np.random.rand(*image_shape).astype(np.float32)
                 padded_image[dy:(height + dy), dx:(width + dx), :] = mp_image.pixels.transpose(1, 2, 0)
-                padded_landmark = mp_image.landmarks[group].points
+                padded_landmark = mp_image.landmarks['PTS'].points
                 padded_landmark[:, 0] += dy
                 padded_landmark[:, 1] += dx
                 features = tf.train.Features(
@@ -291,6 +288,63 @@ def prepare_images(paths, group=None, verbose=True):
                         ),
                         'train/shape': tf.train.Feature(
                             float_list=tf.train.FloatList(value=padded_landmark.flatten())
+                        )
+                    }
+                )
+                ofs.write(tf.train.Example(features=features).SerializeToString())
+            if verbose:
+                print('')
+
+    # Sixth: test data
+    if Path(path_base / 'test.bin').exists():
+        pass
+    else:
+        with tf.io.TFRecordWriter(str(path_base / 'test.bin')) as ofs:
+            print('Preparing test data...')
+            counter = 0
+            for path in test_paths:
+                counter += 1
+                if verbose:
+                    status = 10.0 * counter / len(test_paths)
+                    status_str = '\rPreparing {:2.2f}%['.format(status * 10)
+                    for i in range(int(status)):
+                        status_str += '='
+                    for i in range(int(status), 10):
+                        status_str += ' '
+                    status_str += '] {}     '.format(path)
+                    print(status_str, end='')
+                mp_image = mio.import_image(path)
+                mp_image.landmarks['bb'] = mio.import_landmark_file(
+                    str(Path(mp_image.path.parent.parent / 'BoundingBoxes' / (mp_image.path.stem + '.pts')))
+                )
+                mp_image = mp_image.crop_to_landmarks_proportion(0.3, group='bb')
+                mp_bb = mp_image.landmarks['bb'].bounding_box()
+                mp_image.landmarks['init'] = align_shape_with_bounding_box(reference_shape, mp_bb)
+                mp_image = mp_image.rescale_to_pointcloud(reference_shape, group='init')
+                mp_image = grey_to_rgb(mp_image)
+                # Padding to the same size
+                height, width = mp_image.pixels.shape[1:]  # [C, H, W]
+                dy = max(int((256 - height - 1) / 2), 0)  # 200*(1+0.3*2)/sqrt(2) == 226.7
+                dx = max(int((256 - width - 1) / 2), 0)  # 200*(1+0.3*2)/sqrt(2) == 226.7
+                padded_image = np.random.rand(256, 256, 3).astype(np.float32)
+                padded_image[dy:(height + dy), dx:(width + dx), :] = mp_image.pixels.transpose(1, 2, 0)
+                padded_landmark = mp_image.landmarks['PTS'].points
+                padded_landmark[:, 0] += dy
+                padded_landmark[:, 1] += dx
+                padded_init_landmark = mp_image.landmarks['init'].points
+                padded_init_landmark[:, 0] += dy
+                padded_init_landmark[:, 1] += dx
+                features = tf.train.Features(
+                    feature={
+                        'test/image': tf.train.Feature(
+                            bytes_list=tf.train.BytesList(
+                                value=[tf.compat.as_bytes(padded_image.tostring())])
+                        ),
+                        'test/shape': tf.train.Feature(
+                            float_list=tf.train.FloatList(value=padded_landmark.flatten())
+                        ),
+                        'test/init': tf.train.Feature(
+                            float_list=tf.train.FloatList(value=padded_init_landmark.flatten())
                         )
                     }
                 )
@@ -364,53 +418,6 @@ def load_images(paths, group=None, verbose=True):
     return padded_images, shapes, reference_shape.points, pca_model
 
 
-def load_image(path, reference_shape, is_training=False, group='PTS',
-               mirror_image=False):
-    """Load an annotated image.
-
-    In the directory of the provided image file, there
-    should exist a landmark file (.pts) with the same
-    basename as the image file.
-
-    Args:
-      path: a path containing an image file.
-      reference_shape: a numpy array [num_landmarks, 2]
-      is_training: whether in training mode or not.
-      group: landmark group containing the grounth truth landmarks.
-      mirror_image: flips horizontally the image's pixels and landmarks.
-    Returns:
-      pixels: a numpy array [width, height, 3].
-      estimate: an initial estimate a numpy array [num_landmarks, 2].
-      gt_truth: the ground truth landmarks, a numpy array [num_landmarks, 2].
-    """
-    if isinstance(path, bytes):
-        path = path.decode('utf-8')
-    assert(isinstance(path, str))
-    im = mio.import_image(path)
-    bb_root = im.path.parent.parent
-
-    im.landmarks['bb'] = mio.import_landmark_file(str(Path(bb_root / 'BoundingBoxes' / (im.path.stem + '.pts'))))
-
-    im = im.crop_to_landmarks_proportion(0.3, group='bb')
-    reference_shape = PointCloud(reference_shape)
-    bb = im.landmarks['bb'].bounding_box()
-    im.landmarks['__initial'] = align_shape_with_bounding_box(reference_shape, bb)
-    im = im.rescale_to_pointcloud(reference_shape, group='__initial')
-
-    if mirror_image:
-        im = utils.mirror_image(im)
-
-    lms = im.landmarks[group]
-    initial = im.landmarks['__initial']
-
-    # if the image is greyscale then convert to rgb.
-    pixels = grey_to_rgb(im).pixels.transpose(1, 2, 0)
-
-    gt_truth = lms.points.astype(np.float32)
-    estimate = initial.points.astype(np.float32)
-    return pixels.astype(np.float32).copy(), gt_truth, estimate
-
-
 def distort_color(image, thread_id=0, stddev=0.1):
     """Distort the color of the image.
     Each color distortion is non-commutative and thus ordering of the color ops
@@ -447,66 +454,3 @@ def distort_color(image, thread_id=0, stddev=0.1):
         # The random_* ops do not necessarily clamp.
         image = tf.clip_by_value(image, 0.0, 1.0)
         return image
-
-
-def batch_inputs(paths,
-                 reference_shape,
-                 batch_size=32,
-                 is_training=False,
-                 mirror_image=False):
-    """Reads the files off the disk and produces batches.
-
-    Args:
-      paths: a list of directories that contain training images and
-        the corresponding landmark files.
-      reference_shape: a numpy array [num_landmarks, 2]
-      batch_size: the batch size.
-      is_training: whether in training mode.
-      mirror_image: mirrors the image and landmarks horizontally.
-    Returns:
-      images: a tf tensor of shape [batch_size, width, height, 3].
-      lms: a tf tensor of shape [batch_size, num_landmarks, 2].
-      lms_init: a tf tensor of shape [batch_size, num_landmarks, 2].
-    """
-    if isinstance(paths, list):
-        _files = [list(map(str, sorted(Path(d).parent.glob(Path(d).name)))) for d in paths]
-        for i, _ in enumerate(_files):
-            _files[i] = list(filter(lambda x: os.path.exists(x[:-4] + '.pts'), _files[i]))
-        files = tf.concat(_files, 0)
-    else:
-        with open(paths, 'r') as ifs:
-            _files = ifs.read().split('\n')[:-1]
-        files = list(filter(lambda x: os.path.exists(x[:-4] + '.pts'), _files))
-
-    filename_queue = tf.train.string_input_producer(files,
-                                                    shuffle=is_training,
-                                                    capacity=1000)
-
-    filename = filename_queue.dequeue()
-
-    image, lms, lms_init = tf.py_func(
-        partial(load_image, is_training=is_training,
-                mirror_image=mirror_image),
-        [filename, reference_shape],  # input arguments
-        [tf.float32, tf.float32, tf.float32],  # output types
-        name='load_image'
-    )
-
-    # The image has always 3 channels.
-    image.set_shape([None, None, 3])
-
-    if is_training:
-        image = distort_color(image)
-
-    lms = tf.reshape(lms, reference_shape.shape)
-    lms_init = tf.reshape(lms_init, reference_shape.shape)
-
-    images, lms, inits, shapes = tf.train.batch(
-                                    [image, lms, lms_init, tf.shape(image)],
-                                    batch_size=batch_size,
-                                    num_threads=4 if is_training else 1,
-                                    capacity=1000,
-                                    enqueue_many=False,
-                                    dynamic_pad=True)
-
-    return images, lms, inits, shapes
