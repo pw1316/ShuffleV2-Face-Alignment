@@ -32,13 +32,14 @@ class MDMModel:
         self.is_training = is_training
 
         self.batch_size = batch_size
+        self.hidden_size = 512
         self.dxs = []
         self.patches = []
         self.cnn = []
         self.rnn = []
 
         with tf.name_scope('Network', values=[self.in_init_shapes]):
-            self.rnn_hidden = tf.zeros((self.batch_size, 512), name='init_state')
+            self.rnn_hidden = tf.zeros((self.batch_size, self.hidden_size), name='init_state')
             self.dx = tf.zeros((self.batch_size, self.num_patches, 2), name='init_dx')
             for step in range(self.num_iterations):
                 with tf.name_scope('ExtractPatches{}'.format(step), values=[self.in_images, self.dx]):
@@ -59,7 +60,7 @@ class MDMModel:
                 with tf.variable_scope('rnn', reuse=tf.AUTO_REUSE, auxiliary_name_scope=False):
                     with tf.name_scope('mdm_rnn{}'.format(step), values=[rnn_in, self.rnn_hidden]):
                         self.rnn_hidden = tf.layers.dense(
-                            tf.concat([rnn_in, self.rnn_hidden], 1), 512,
+                            tf.concat([rnn_in, self.rnn_hidden], 1), self.hidden_size,
                             activation=tf.tanh
                         )
                         prediction = tf.layers.dense(
@@ -90,7 +91,7 @@ class MDMModel:
                 inputs,
                 (self.batch_size * self.num_patches, self.patch_shape[0], self.patch_shape[1], self.num_channels)
             )
-            # Convolution 1 (n*73,30,30,3)
+            # Convolution 1
             inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_1')
             inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_1')
             inputs = tf.nn.relu(inputs, name='relu_1')
@@ -98,9 +99,8 @@ class MDMModel:
             net['conv_1'] = inputs
             inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
             net['pool_1'] = inputs
-            # Convolution 1 (n*73,14,14,32)
 
-            # Convolution 2 (n*73,14,14,32)
+            # Convolution 2
             inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_2')
             inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_2')
             inputs = tf.nn.relu(inputs, name='relu_2')
@@ -108,9 +108,8 @@ class MDMModel:
             net['conv_2'] = inputs
             inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
             net['pool_2'] = inputs
-            # Convolution 2 (n*73,6,6,32)
 
-            # Convolution 3 (n*73,6,6,32)
+            # Convolution 3
             inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_3')
             inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_3')
             inputs = tf.nn.relu(inputs, name='relu_3')
@@ -122,11 +121,9 @@ class MDMModel:
             cropped = utils.get_central_crop(net['conv_3'], box=crop_size)
             net['conv_3_cropped'] = cropped
             inputs = tf.concat([cropped, inputs], 3)
-            # Convolution 3 (n*73,2,2,64)
 
-            # Flatten (n*73,2,2,64)
+            # Flatten
             inputs = tf.reshape(inputs, (self.batch_size, -1))
-            # Flatten (n,73*2*2*64)
         net['concat'] = inputs
         return inputs, net
 
