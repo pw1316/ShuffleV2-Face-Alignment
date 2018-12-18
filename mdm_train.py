@@ -17,6 +17,9 @@ import json
 tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
 with open(tf.flags.FLAGS.c, 'r') as g_config:
     g_config = json.load(g_config)
+for k in g_config:
+    print(k, type(g_config[k]), g_config[k])
+input('OK?(Y/N): ')
 
 
 def train(scope=''):
