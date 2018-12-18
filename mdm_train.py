@@ -201,13 +201,13 @@ def train(scope=''):
             # Assuming model_checkpoint_path looks something like:
             #   /ckpt/train/model.ckpt-0,
             # extract global_step from it.
-            start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1])
+            start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]) + 1
             print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['train_dir']))
 
         summary_writer = tf.summary.FileWriter(g_config['train_dir'], sess.graph)
 
         print('Starting training...')
-        for step in range(start_step + 1, g_config['max_steps']):
+        for step in range(start_step, g_config['max_steps']):
             start_time = time.time()
             _, loss_value = sess.run([train_op, tf_total_loss])
             duration = time.time() - start_time
