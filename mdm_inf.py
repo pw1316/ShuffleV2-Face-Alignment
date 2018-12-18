@@ -104,15 +104,11 @@ def influence():
                 mean_error = normalized_mean_error(error)
                 error_level = min(9, int(mean_error * 100))
 
-                predict_image = utils.draw_landmarks_discrete(
+                concat_image = utils.draw_landmarks_discrete(
                     np_image,
+                    np_shape,
                     prediction
                 )
-                original_image = utils.draw_landmarks_discrete(
-                    np_image,
-                    np_shape
-                )
-                concat_image = np.concatenate((original_image, predict_image), 1)
                 plt.imsave('err{}/step{}.png'.format(error_level, step), concat_image)
                 errors.append(error)
                 mean_errors.append(mean_error)

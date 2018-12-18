@@ -72,10 +72,12 @@ class MDMModel:
                 self.rnn.append(prediction)
                 self.dxs.append(self.dx)
             self.prediction = tf.add(self.in_init_shapes, self.dx, name='prediction')
-            predict_images, = tf.py_func(utils.batch_draw_landmarks, [self.in_images, self.prediction], [tf.float32])
-            original_images, = tf.py_func(utils.batch_draw_landmarks, [self.in_images, self.in_shapes], [tf.float32])
-            self.concat_images = tf.concat([original_images, predict_images], 2)
-            tf.summary.image('images', self.concat_images, max_outputs=5)
+            self.out_images, = tf.py_func(
+                utils.batch_draw_landmarks_discrete,
+                [self.in_images, self.in_shapes, self.prediction],
+                [tf.float32]
+            )
+            tf.summary.image('images', self.out_images, max_outputs=10)
 
     def conv_model(self, inputs, step):
         """

@@ -174,15 +174,19 @@ def batch_draw_landmarks(imgs, lms):
     return np.array([draw_landmarks(img, l) for img, l in zip(imgs, lms)])
 
 
-def draw_landmarks_discrete(img, lms):
+def draw_landmarks_discrete(img, gtlms, prlms):
     img = img.copy()
-    for v in lms:
-        cv2.circle(img, (int(v[1]), int(v[0])), 1, (1, 1, 0), -1)
+    if gtlms:
+        for v in gtlms:
+            cv2.circle(img, (int(v[1]), int(v[0])), 1, (1, 1, 0), -1)
+    if prlms:
+        for v in prlms:
+            cv2.circle(img, (int(v[1]), int(v[0])), 1, (0, 1, 0), -1)
     return img
 
 
-def batch_draw_landmarks_discrete(imgs, lms):
-    return np.array([draw_landmarks_discrete(img, l) for img, l in zip(imgs, lms)])
+def batch_draw_landmarks_discrete(imgs, gtlms, prlms):
+    return np.array([draw_landmarks_discrete(img, gtl, prl) for img, gtl, prl in zip(imgs, gtlms, prlms)])
 
 
 def get_central_crop(images, box=(6, 6)):

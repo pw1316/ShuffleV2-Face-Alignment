@@ -138,15 +138,6 @@ def evaluate():
             )[0]
             tf_predictions /= 2.
 
-        tf_predict_images, = tf.py_func(
-            utils.batch_draw_landmarks_discrete,
-            [tf_images, model.prediction], [tf.float32]
-        )
-        tf_original_images, = tf.py_func(
-            utils.batch_draw_landmarks_discrete,
-            [tf_images, tf_shapes], [tf.float32])
-        tf_concat_images = tf.concat([tf_original_images, tf_predict_images], 2)
-
         # Calculate predictions.
         # tf_nme = model.normalized_rmse(tf_predictions, tf_shapes)
         tf_ne = model.normalized_error(tf_predictions, tf_shapes)
@@ -186,7 +177,7 @@ def evaluate():
             print('%s: starting evaluation on (%s).' % (datetime.now(), g_config['eval_dataset']))
             start_time = time.time()
             while step < num_iter:
-                rmse, rse, img = sess.run([tf_nme, tf_ne, tf_concat_images])
+                rmse, rse, img = sess.run([tf_nme, tf_ne, model.out_images])
                 error_level = min(9, int(rmse[0] * 100))
                 plt.imsave('err{}/step{}.png'.format(error_level, step), img[0])
                 errors.append(rse)
