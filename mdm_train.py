@@ -201,7 +201,7 @@ def train(scope=''):
             # Assuming model_checkpoint_path looks something like:
             #   /ckpt/train/model.ckpt-0,
             # extract global_step from it.
-            start_step = ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]
+            start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1])
             print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['train_dir']))
 
         summary_writer = tf.summary.FileWriter(g_config['train_dir'], sess.graph)
