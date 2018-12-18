@@ -102,7 +102,7 @@ def evaluate():
                 )
             )
             tf_dataset = tf_dataset.batch(1)
-            tf_dataset = tf_dataset.prefetch(3000)
+            tf_dataset = tf_dataset.prefetch(5000)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_inits, tf_images_m, tf_inits_m, tf_shapes = tf_iterator.get_next(name='batch')
 
