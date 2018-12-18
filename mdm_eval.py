@@ -7,7 +7,6 @@ from __future__ import print_function
 from datetime import datetime
 from pathlib import Path
 
-import data_provider
 import menpo
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,6 +16,7 @@ import tensorflow as tf
 import time
 import utils
 import menpo.io as mio
+from menpo.shape.pointcloud import PointCloud
 
 # Do not use a gui toolkit for matlotlib.
 matplotlib.use('Agg')
@@ -26,9 +26,8 @@ tf.flags.DEFINE_string('eval_dir', 'ckpt/eval', """Directory where to write even
 tf.flags.DEFINE_string('ckpt_dir', 'ckpt/train/', """Directory where to read model checkpoints.""")
 # Flags governing the data used for the eval.
 tf.flags.DEFINE_integer('num_examples', 4135, """Number of examples to run.""")
-tf.flags.DEFINE_string('dataset', 'Dataset/FW2/test_img.txt', """The dataset path to evaluate.""")
+tf.flags.DEFINE_string('dataset', 'Dataset/FW2/Images/*.png', """The dataset path to evaluate.""")
 tf.flags.DEFINE_string('device', '/gpu:0', 'the device to eval on.')
-tf.flags.DEFINE_integer('batch_size', 1, """The batch size to use.""")
 tf.flags.DEFINE_integer('num_patches', 73, 'Landmark number')
 tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
 tf.flags.DEFINE_boolean('use_mirror', False, 'Use mirror evaluation')
@@ -70,35 +69,77 @@ def flip_predictions(predictions, shapes):
 
 def evaluate():
     with tf.Graph().as_default(), tf.device('/cpu:0'):
-        reference_shape = mio.import_pickle(Path(FLAGS.ckpt_dir) / 'reference_shape.pkl')
+        path_base = Path(FLAGS.dataset).parent.parent
+        _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
 
-        tf_images, tf_shapes, tf_inits, _ = data_provider.batch_inputs(
-                FLAGS.dataset, reference_shape,
-                batch_size=FLAGS.batch_size, is_training=False)
+        def decode_feature(serialized):
+            feature = {
+                'test/image': tf.FixedLenFeature([], tf.string),
+                'test/shape': tf.VarLenFeature(tf.float32),
+                'test/init': tf.VarLenFeature(tf.float32),
+            }
+            features = tf.parse_single_example(serialized, features=feature)
+            decoded_image = tf.decode_raw(features['test/image'], tf.float32)
+            decoded_image = tf.reshape(decoded_image, (256, 256, 3))
+            decoded_shape = tf.sparse.to_dense(features['test/shape'])
+            decoded_shape = tf.reshape(decoded_shape, (FLAGS.num_patches, 2))
+            decoded_init = tf.sparse.to_dense(features['test/init'])
+            decoded_init = tf.reshape(decoded_init, (FLAGS.num_patches, 2))
+            return decoded_image, decoded_shape, decoded_init
 
-        tf_images_m, _, tf_inits_m, tf_image_shape = data_provider.batch_inputs(
-            FLAGS.dataset, reference_shape,
-            batch_size=FLAGS.batch_size, is_training=False, mirror_image=True)
+        def get_mirrored_image(image, shape, init):
+            # Read a random image with landmarks and bb
+            image_m = menpo.image.Image(image.transpose((2, 0, 1)))
+            image_m.landmarks['init'] = PointCloud(init)
+            image_m = utils.mirror_image(image_m)
+            mirrored_image = image_m.pixels.transpose(1, 2, 0).astype('float32')
+            mirrored_init = image_m.landmarks['init'].points.astype('float32')
+            return image, init, mirrored_image, mirrored_init, shape
+
+        with tf.name_scope('data_provider', values=[]):
+            tf_dataset = tf.data.TFRecordDataset([str(path_base / 'test.bin')])
+            tf_dataset = tf_dataset.map(decode_feature)
+            tf_dataset = tf_dataset.map(
+                lambda x, y, z: tf.py_func(
+                    get_mirrored_image, [x, y, z], [tf.float32, tf.float32, tf.float32, tf.float32, tf.float32],
+                    stateful=False,
+                    name='mirror'
+                )
+            )
+            tf_dataset = tf_dataset.batch(1)
+            tf_dataset = tf_dataset.prefetch(3000)
+            tf_iterator = tf_dataset.make_one_shot_iterator()
+            tf_images, tf_inits, tf_images_m, tf_inits_m, tf_shapes = tf_iterator.get_next(name='batch')
 
         print('Loading model...')
         with tf.device(FLAGS.device):
             model = mdm_model.MDMModel(
-                tf_images, tf_shapes, tf_inits,
-                num_iterations=4,
+                tf_images,
+                tf_shapes,
+                tf_inits,
+                batch_size=1,
+                num_iterations=5,
                 num_patches=FLAGS.num_patches,
-                patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
+                patch_shape=(FLAGS.patch_size, FLAGS.patch_size),
+                num_channels=3,
+                is_training=False
             )
             tf.get_variable_scope().reuse_variables()
             model_m = mdm_model.MDMModel(
-                tf_images_m, tf_shapes, tf_inits_m,
-                num_iterations=4,
+                tf_images_m,
+                tf_shapes,
+                tf_inits_m,
+                batch_size=1,
+                num_iterations=5,
                 num_patches=FLAGS.num_patches,
-                patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
+                patch_shape=(FLAGS.patch_size, FLAGS.patch_size),
+                num_channels=3,
+                is_training=False
             )
         tf_predictions = model.prediction
         if FLAGS.use_mirror:
             tf_predictions += tf.py_func(
-                flip_predictions, (model_m.prediction, tf_image_shape), (tf.float32, )
+                flip_predictions, (model_m.prediction, (1, 256, 256, 3)), (tf.float32, )
             )[0]
             tf_predictions /= 2.
 
@@ -121,9 +162,6 @@ def evaluate():
         variables_to_restore = variable_averages.variables_to_restore()
         saver = tf.train.Saver(variables_to_restore)
 
-        # Build the summary operation based on the TF collection of Summaries.
-        summary_op = tf.summary.merge_all()
-
         graph_def = tf.get_default_graph().as_graph_def()
         summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, graph_def=graph_def)
 
@@ -142,78 +180,58 @@ def evaluate():
                 print('No checkpoint file found')
                 return
 
-            # Start the queue runners.
-            coord = tf.train.Coordinator()
-            threads = []
-            try:
-                for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
-                    threads.extend(qr.create_threads(sess, coord=coord, daemon=True, start=True))
+            num_iter = FLAGS.num_examples
+            # Counts the number of correct predictions.
+            errors = []
+            mean_errors = []
 
-                num_iter = int(FLAGS.num_examples / FLAGS.batch_size)
-                # Counts the number of correct predictions.
-                errors = []
-                mean_errors = []
+            total_sample_count = num_iter
+            step = 0
 
-                total_sample_count = int(num_iter * FLAGS.batch_size)
-                step = 0
+            print('%s: starting evaluation on (%s).' % (datetime.now(), FLAGS.dataset))
+            start_time = time.time()
+            while step < num_iter:
+                rmse, rse, img = sess.run([tf_nme, tf_ne, tf_concat_images])
+                error_level = min(9, int(rmse[0] * 100))
+                plt.imsave('err{}/step{}.png'.format(error_level, step), img[0])
+                errors.append(rse)
+                mean_errors.append(rmse)
+                step += 1
+                if step % 20 == 0:
+                    duration = time.time() - start_time
+                    sec_per_batch = duration / 20.0
+                    examples_per_sec = 1. / sec_per_batch
+                    log_str = '{}: [{:d} batches out of {:d}] ({:.1f} examples/sec; {:.3f} sec/batch)'
+                    print(log_str.format(datetime.now(), step, num_iter, examples_per_sec, sec_per_batch))
+                    start_time = time.time()
 
-                print('%s: starting evaluation on (%s).' % (datetime.now(), FLAGS.dataset))
-                start_time = time.time()
-                while step < num_iter and not coord.should_stop():
-                    rmse, rse, img = sess.run([tf_nme, tf_ne, tf_concat_images])
-                    error_level = min(9, int(rmse[0] * 100))
-                    plt.imsave('err{}/step{}.png'.format(error_level, step), img[0])
-                    errors.append(rse)
-                    mean_errors.append(rmse)
-                    step += 1
-                    if step % 20 == 0:
-                        duration = time.time() - start_time
-                        sec_per_batch = duration / 20.0
-                        examples_per_sec = 1. / sec_per_batch
-                        log_str = '{}: [{:d} batches out of {:d}] ({:.1f} examples/sec; {:.3f} sec/batch)'
-                        print(log_str.format(datetime.now(), step, num_iter, examples_per_sec, sec_per_batch))
-                        start_time = time.time()
-
-                errors = np.array(errors)
-                errors = np.reshape(errors, (-1, FLAGS.num_patches))
-                print(errors.shape)
-                mean_errors = np.vstack(mean_errors).ravel()
-                mean_rse = np.mean(errors, 0)
-                mean_rmse = mean_errors.mean()
-                with open('errors.txt', 'w') as ofs:
-                    for row, avg in zip(errors, mean_errors):
-                        for col in row:
-                            ofs.write('%.4f, ' % col)
-                        ofs.write('%.4f' % avg)
-                        ofs.write('\n')
-                    for col in mean_rse:
+            errors = np.array(errors)
+            errors = np.reshape(errors, (-1, FLAGS.num_patches))
+            print(errors.shape)
+            mean_errors = np.vstack(mean_errors).ravel()
+            mean_rse = np.mean(errors, 0)
+            mean_rmse = mean_errors.mean()
+            with open('errors.txt', 'w') as ofs:
+                for row, avg in zip(errors, mean_errors):
+                    for col in row:
                         ofs.write('%.4f, ' % col)
-                    ofs.write('%.4f' % mean_rmse)
+                    ofs.write('%.4f' % avg)
                     ofs.write('\n')
-                auc_at_08 = (mean_errors < .08).mean()
-                auc_at_05 = (mean_errors < .05).mean()
-                ced_image = plot_ced([mean_errors.tolist()])
-                ced_plot = sess.run(tf.summary.merge([tf.summary.image('ced_plot', ced_image[None, ...])]))
+                for col in mean_rse:
+                    ofs.write('%.4f, ' % col)
+                ofs.write('%.4f' % mean_rmse)
+                ofs.write('\n')
+            auc_at_08 = (mean_errors < .08).mean()
+            auc_at_05 = (mean_errors < .05).mean()
+            ced_image = plot_ced([mean_errors.tolist()])
+            ced_plot = sess.run(tf.summary.merge([tf.summary.image('ced_plot', ced_image[None, ...])]))
 
-                print('Errors', mean_errors.shape)
-                print(
-                    '%s: mean_rmse = %.4f, auc @ 0.05 = %.4f, auc @ 0.08 = %.4f [%d examples]' %
-                    (datetime.now(), mean_errors.mean(), auc_at_05, auc_at_08, total_sample_count)
-                )
-
-                summary = tf.Summary()
-                summary.ParseFromString(sess.run(summary_op))
-                summary.value.add(tag='AUC @ 0.08', simple_value=float(auc_at_08))
-                summary.value.add(tag='AUC @ 0.05', simple_value=float(auc_at_05))
-                summary.value.add(tag='Mean RMSE', simple_value=float(mean_rmse))
-                summary_writer.add_summary(ced_plot, global_step)
-                summary_writer.add_summary(summary, global_step)
-
-            except Exception as e:  # pylint: disable=broad-except
-                coord.request_stop(e)
-
-            coord.request_stop()
-            coord.join(threads, stop_grace_period_secs=10)
+            print('Errors', mean_errors.shape)
+            print(
+                '%s: mean_rmse = %.4f, auc @ 0.05 = %.4f, auc @ 0.08 = %.4f [%d examples]' %
+                (datetime.now(), mean_errors.mean(), auc_at_05, auc_at_08, total_sample_count)
+            )
+            summary_writer.add_summary(ced_plot, global_step)
 
 
 if __name__ == '__main__':
