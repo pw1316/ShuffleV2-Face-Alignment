@@ -12,43 +12,21 @@ import tensorflow as tf
 import detect
 import random
 
-FLAGS = tf.flags.FLAGS
 
-
-def build_reference_shape(paths, diagonal=200):
+def build_reference_shape(paths, num_patches=73, diagonal=200):
     """Builds the reference shape.
 
     Args:
-      paths: paths that contain the ground truth landmark files.
-      diagonal: the diagonal of the reference shape in pixels.
+        paths: train image paths.
+        num_patches: number of landmarks
+        diagonal: the diagonal of the reference shape in pixels.
     Returns:
-      the reference shape.
-    """
-    landmarks = []
-    for path in paths:
-        path = Path(path).parent.as_posix()
-        landmarks += [
-            group
-            for group in mio.import_landmark_files(path, verbose=True)
-            if group.n_points == FLAGS.num_patches
-        ]
-
-    return compute_reference_shape(landmarks, diagonal=diagonal).points.astype(np.float32)
-
-
-def build_reference_shape_ex(paths, diagonal=200):
-    """Builds the reference shape.
-
-    Args:
-      paths: train image paths.
-      diagonal: the diagonal of the reference shape in pixels.
-    Returns:
-      the reference shape.
+        the reference shape.
     """
     landmarks = []
     for path in paths:
         group = mio.import_landmark_file(path.parent / (path.stem + '.pts'))
-        if group.n_points == FLAGS.num_patches:
+        if group.n_points == num_patches:
             landmarks += [group]
     return compute_reference_shape(landmarks, diagonal=diagonal).points.astype(np.float32)
 
@@ -139,11 +117,11 @@ def get_noisy_init_from_bb(reference_shape, bb, noise_percentage=.02):
     return align_shape_with_bounding_box(reference_shape, bb).points
 
 
-def prepare_images(paths, group=None, verbose=True):
+def prepare_images(paths, num_patches=73, verbose=True):
     """Save Train Images to TFRecord
     Args:
         paths: a list of strings containing the data directories.
-        group: landmark group containing the ground truth landmarks.
+        num_patches: number of landmarks
         verbose: boolean, print debugging info.
     Returns:
         None
@@ -193,7 +171,7 @@ def prepare_images(paths, group=None, verbose=True):
     if Path(path_base / 'reference_shape.pkl').exists():
         reference_shape = PointCloud(mio.import_pickle(path_base / 'reference_shape.pkl'))
     else:
-        reference_shape = PointCloud(build_reference_shape_ex(train_paths))
+        reference_shape = PointCloud(build_reference_shape(train_paths, num_patches))
         mio.export_pickle(reference_shape.points, path_base / 'reference_shape.pkl', overwrite=True)
     print('Created reference_shape.pkl')
 
@@ -217,12 +195,11 @@ def prepare_images(paths, group=None, verbose=True):
                     status_str += '] {}     '.format(path)
                     print(status_str, end='')
                 mp_image = mio.import_image(path)
-                group = group or mp_image.landmarks.group_labels[0]
                 mp_image.landmarks['bb'] = mio.import_landmark_file(
                     str(Path(mp_image.path.parent.parent / 'BoundingBoxes' / (mp_image.path.stem + '.pts')))
                 )
                 mp_image = mp_image.crop_to_landmarks_proportion(0.3, group='bb')
-                mp_image = mp_image.rescale_to_pointcloud(reference_shape, group=group)
+                mp_image = mp_image.rescale_to_pointcloud(reference_shape, group='PTS')
                 mp_image = grey_to_rgb(mp_image)
                 assert(mp_image.pixels.shape[0] == image_shape[2])
                 image_shape[0] = max(mp_image.pixels.shape[1], image_shape[0])
@@ -230,7 +207,7 @@ def prepare_images(paths, group=None, verbose=True):
                 features = tf.train.Features(
                     feature={
                         'pca/shape': tf.train.Feature(
-                            float_list=tf.train.FloatList(value=mp_image.landmarks[group].points.flatten())
+                            float_list=tf.train.FloatList(value=mp_image.landmarks['PTS'].points.flatten())
                         ),
                         'pca/bb': tf.train.Feature(
                             float_list=tf.train.FloatList(value=mp_image.landmarks['bb'].points.flatten())
@@ -270,7 +247,7 @@ def prepare_images(paths, group=None, verbose=True):
                     str(Path(mp_image.path.parent.parent / 'BoundingBoxes' / (mp_image.path.stem + '.pts')))
                 )
                 mp_image = mp_image.crop_to_landmarks_proportion(0.3, group='bb')
-                mp_image = mp_image.rescale_to_pointcloud(reference_shape, group=group)
+                mp_image = mp_image.rescale_to_pointcloud(reference_shape, group='PTS')
                 mp_image = grey_to_rgb(mp_image)
                 # Padding to the same size
                 height, width = mp_image.pixels.shape[1:]  # [C, H, W]
@@ -351,71 +328,6 @@ def prepare_images(paths, group=None, verbose=True):
                 ofs.write(tf.train.Example(features=features).SerializeToString())
             if verbose:
                 print('')
-
-
-def load_images(paths, group=None, verbose=True):
-    """Loads and rescales input images to the diagonal of the reference shape.
-
-    Args:
-        paths: a list of strings containing the data directories.
-        group: landmark group containing the ground truth landmarks.
-        verbose: boolean, print debugging info.
-    Returns:
-        images: a list of numpy arrays containing images.
-        shapes: a list of the ground truth landmarks.
-        reference_shape: a numpy array [num_landmarks, 2].
-        shape_gen: PCAModel, a shape generator.
-    """
-    images = []
-    shapes = []
-    bbs = []
-
-    reference_shape = PointCloud(build_reference_shape(paths))
-
-    for path in paths:
-        if verbose:
-            print('Importing data from {}'.format(path))
-
-        for im in mio.import_images(path, verbose=verbose, as_generator=True):
-            group = group or im.landmarks.group_labels[0]
-
-            bb_root = im.path.parent.parent
-            try:
-                lms = mio.import_landmark_file(str(Path(bb_root / 'BoundingBoxes' / (im.path.stem + '.pts'))))
-            except ValueError:
-                print('skip')
-                continue
-            im.landmarks['bb'] = lms
-            im = im.crop_to_landmarks_proportion(0.3, group='bb')
-            im = im.rescale_to_pointcloud(reference_shape, group=group)
-            im = grey_to_rgb(im)
-            images.append(im.pixels.transpose(1, 2, 0))
-            shapes.append(im.landmarks[group])
-            bbs.append(im.landmarks['bb'])
-
-    train_dir = Path(FLAGS.train_dir)
-    mio.export_pickle(reference_shape.points, train_dir / 'reference_shape.pkl', overwrite=True)
-    print('created reference_shape.pkl using the {} group'.format(group))
-
-    pca_model = detect.create_generator(shapes, bbs)
-
-    # Pad images to max length
-    max_shape = np.max([im.shape for im in images], axis=0)
-    max_shape = [len(images)] + list(max_shape)
-    padded_images = np.random.rand(*max_shape).astype(np.float32)
-    print(padded_images.shape)
-
-    for i, im in enumerate(images):
-        height, width = im.shape[:2]
-        dy = max(int((max_shape[1] - height - 1) / 2), 0)
-        dx = max(int((max_shape[2] - width - 1) / 2), 0)
-        lms = shapes[i]
-        pts = lms.points
-        pts[:, 0] += dy
-        pts[:, 1] += dx
-        padded_images[i, dy:(height+dy), dx:(width+dx)] = im
-
-    return padded_images, shapes, reference_shape.points, pca_model
 
 
 def distort_color(image, thread_id=0, stddev=0.1):

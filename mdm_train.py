@@ -18,7 +18,6 @@ tf.flags.DEFINE_float('lr', 0.001, """Initial learning rate.""")
 tf.flags.DEFINE_float('lr_decay_steps', 15000, """Learning rate decay steps.""")
 tf.flags.DEFINE_float('lr_decay_rate', 0.1, """Learning rate decay rate.""")
 tf.flags.DEFINE_integer('batch_size', 60, """The batch size to use.""")
-tf.flags.DEFINE_integer('num_threads', 4, """How many pre-process threads to use.""")
 tf.flags.DEFINE_string('train_dir', 'ckpt/train', """Log out directory.""")
 tf.flags.DEFINE_string('pre_trained_dir', '', """Restore pre-trained model.""")
 tf.flags.DEFINE_integer('max_steps', 100000, """Number of batches to run.""")
@@ -55,7 +54,7 @@ def train(scope=''):
         # Create an optimizer that performs gradient descent.
         opt = tf.train.AdamOptimizer(tf_lr)
 
-        data_provider.prepare_images(FLAGS.datasets.split(':'), verbose=True)
+        data_provider.prepare_images(FLAGS.datasets.split(':'), num_patches=FLAGS.num_patches, verbose=True)
         path_base = Path(FLAGS.datasets.split(':')[0]).parent.parent
         _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
         with Path(path_base / 'meta.txt').open('r') as ifs:
