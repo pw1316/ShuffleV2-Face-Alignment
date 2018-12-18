@@ -12,22 +12,11 @@ import menpo
 import menpo.io as mio
 import detect
 from menpo.shape.pointcloud import PointCloud
+import json
 
-FLAGS = tf.flags.FLAGS
-tf.flags.DEFINE_float('lr', 0.001, """Initial learning rate.""")
-tf.flags.DEFINE_float('lr_decay_steps', 15000, """Learning rate decay steps.""")
-tf.flags.DEFINE_float('lr_decay_rate', 0.1, """Learning rate decay rate.""")
-tf.flags.DEFINE_integer('batch_size', 60, """The batch size to use.""")
-tf.flags.DEFINE_string('train_dir', 'ckpt/train', """Log out directory.""")
-tf.flags.DEFINE_string('pre_trained_dir', '', """Restore pre-trained model.""")
-tf.flags.DEFINE_integer('max_steps', 100000, """Number of batches to run.""")
-tf.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
-tf.flags.DEFINE_string('datasets', 'Dataset/FW2/Images/*.png', """Dataset split by ':'""")
-tf.flags.DEFINE_integer('num_patches', 73, 'Landmark number')
-tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
-
-# The decay to use for the moving average.
-MOVING_AVERAGE_DECAY = 0.9999
+tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
+with open(tf.flags.FLAGS.c, 'r') as g_config:
+    g_config = json.load(g_config)
 
 
 def train(scope=''):
@@ -42,10 +31,10 @@ def train(scope=''):
 
         # Learning rate
         tf_lr = tf.train.exponential_decay(
-            FLAGS.lr,
+            g_config['learning_rate'],
             tf_global_step,
-            FLAGS.lr_decay_steps,
-            FLAGS.lr_decay_rate,
+            g_config['learning_rate_step'],
+            g_config['learning_rate_decay'],
             staircase=True,
             name='learning_rate'
         )
@@ -54,8 +43,11 @@ def train(scope=''):
         # Create an optimizer that performs gradient descent.
         opt = tf.train.AdamOptimizer(tf_lr)
 
-        data_provider.prepare_images(FLAGS.datasets.split(':'), num_patches=FLAGS.num_patches, verbose=True)
-        path_base = Path(FLAGS.datasets.split(':')[0]).parent.parent
+        data_provider.prepare_images(
+            g_config['train_dataset'].split(':'),
+            num_patches=g_config['num_patches'], verbose=True
+        )
+        path_base = Path(g_config['train_dataset'].split(':')[0]).parent.parent
         _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
         with Path(path_base / 'meta.txt').open('r') as ifs:
             _image_shape = [int(x) for x in ifs.read().split(' ')]
@@ -70,7 +62,7 @@ def train(scope=''):
             _pca_shapes.append(PointCloud(_pca_shape))
             _pca_bbs.append(PointCloud(_pca_bb))
         _pca_model = detect.create_generator(_pca_shapes, _pca_bbs)
-        assert(_mean_shape.shape[0] == FLAGS.num_patches)
+        assert(_mean_shape.shape[0] == g_config['num_patches'])
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='mean_shape')
 
@@ -83,7 +75,7 @@ def train(scope=''):
             decoded_image = tf.decode_raw(features['train/image'], tf.float32)
             decoded_image = tf.reshape(decoded_image, _image_shape)
             decoded_shape = tf.sparse.to_dense(features['train/shape'])
-            decoded_shape = tf.reshape(decoded_shape, (FLAGS.num_patches, 2))
+            decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
             return decoded_image, decoded_shape
 
         def get_random_sample(image, shape, rotation_stddev=10):
@@ -121,21 +113,21 @@ def train(scope=''):
             )
             tf_dataset = tf_dataset.map(partial(get_random_init_shape, mean_shape=tf_mean_shape, pca=_pca_model))
             tf_dataset = tf_dataset.map(distort_color)
-            tf_dataset = tf_dataset.batch(FLAGS.batch_size, True)
-            tf_dataset = tf_dataset.prefetch(3000)
+            tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
+            tf_dataset = tf_dataset.prefetch(7500)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes, tf_initial_shapes = tf_iterator.get_next(name='batch')
 
         print('Defining model...')
-        with tf.device(FLAGS.train_device):
+        with tf.device(g_config['train_device']):
             tf_model = mdm_model.MDMModel(
                 tf_images,
                 tf_shapes,
                 tf_initial_shapes,
-                batch_size=FLAGS.batch_size,
+                batch_size=g_config['batch_size'],
                 num_iterations=5,
-                num_patches=FLAGS.num_patches,
-                patch_shape=(FLAGS.patch_size, FLAGS.patch_size)
+                num_patches=g_config['num_patches'],
+                patch_shape=(g_config['patch_size'], g_config['patch_size'])
             )
             with tf.name_scope('losses', values=tf_model.dxs + [tf_initial_shapes, tf_shapes]):
                 tf_total_loss = 0
@@ -170,12 +162,11 @@ def train(scope=''):
         # global statistics. This is more complicated then need be but we employ
         # this for backward-compatibility with our previous models.
         with tf.name_scope('MovingAverage', values=[tf_global_step]):
-            variable_averages = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY, tf_global_step)
+            variable_averages = tf.train.ExponentialMovingAverage(g_config['MOVING_AVERAGE_DECAY'], tf_global_step)
             variables_to_average = (tf.trainable_variables() + tf.moving_average_variables())
             variables_averages_op = variable_averages.apply(variables_to_average)
 
         # Group all updates to into a single train op.
-        # NOTE: Currently we are not using batchnorm in MDM.
         bn_updates_op = tf.group(*bn_updates, name='bn_group')
         train_op = tf.group(
             apply_gradient_op, variables_averages_op, bn_updates_op,
@@ -199,20 +190,21 @@ def train(scope=''):
         sess.run(init)
         print('Initialized variables.')
 
-        if FLAGS.pre_trained_dir:
-            assert tf.gfile.Exists(FLAGS.pre_trained_dir)
+        start_step = 0
+        ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
+        if ckpt and ckpt.model_checkpoint_path:
             restorer = tf.train.Saver()
-            restorer.restore(sess, FLAGS.pre_trained_dir)
-            print('%s: Pre-trained model restored from %s' %
-                  (datetime.now(), FLAGS.pre_trained_dir))
+            restorer.restore(sess, ckpt.model_checkpoint_path)
+            # Assuming model_checkpoint_path looks something like:
+            #   /ckpt/train/model.ckpt-0,
+            # extract global_step from it.
+            start_step = ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]
+            print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['train_dir']))
 
-        # Start the queue runners.
-        tf.train.start_queue_runners(sess=sess)
-
-        summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
+        summary_writer = tf.summary.FileWriter(g_config['train_dir'], sess.graph)
 
         print('Starting training...')
-        for step in range(FLAGS.max_steps):
+        for step in range(start_step + 1, g_config['max_steps']):
             start_time = time.time()
             _, loss_value = sess.run([train_op, tf_total_loss])
             duration = time.time() - start_time
@@ -220,7 +212,7 @@ def train(scope=''):
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
 
             if step % 100 == 0:
-                examples_per_sec = FLAGS.batch_size / float(duration)
+                examples_per_sec = g_config['batch_size'] / float(duration)
                 format_str = (
                     '%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
                     'sec/batch)')
@@ -232,8 +224,8 @@ def train(scope=''):
                 summary_writer.add_summary(summary_str, step)
 
             # Save the model checkpoint periodically.
-            if step % 1000 == 0 or (step + 1) == FLAGS.max_steps:
-                checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
+            if step % 1000 == 0 or (step + 1) == g_config['max_steps']:
+                checkpoint_path = os.path.join(g_config['train_dir'], 'model.ckpt')
                 saver.save(sess, checkpoint_path, global_step=step)
 
 

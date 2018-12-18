@@ -17,22 +17,14 @@ import time
 import utils
 import menpo.io as mio
 from menpo.shape.pointcloud import PointCloud
+import json
 
 # Do not use a gui toolkit for matlotlib.
 matplotlib.use('Agg')
 
-FLAGS = tf.flags.FLAGS
-tf.flags.DEFINE_string('eval_dir', 'ckpt/eval', """Directory where to write event logs.""")
-tf.flags.DEFINE_string('ckpt_dir', 'ckpt/train/', """Directory where to read model checkpoints.""")
-# Flags governing the data used for the eval.
-tf.flags.DEFINE_integer('num_examples', 4135, """Number of examples to run.""")
-tf.flags.DEFINE_string('dataset', 'Dataset/FW2/Images/*.png', """The dataset path to evaluate.""")
-tf.flags.DEFINE_string('device', '/gpu:0', 'the device to eval on.')
-tf.flags.DEFINE_integer('num_patches', 73, 'Landmark number')
-tf.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
-tf.flags.DEFINE_boolean('use_mirror', False, 'Use mirror evaluation')
-# The decay to use for the moving average.
-MOVING_AVERAGE_DECAY = 0.9999
+tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
+with open(tf.flags.FLAGS.c, 'r') as g_config:
+    g_config = json.load(g_config)
 
 
 def plot_ced(errors, method_names=['MDM']):
@@ -69,7 +61,7 @@ def flip_predictions(predictions, shapes):
 
 def evaluate():
     with tf.Graph().as_default(), tf.device('/cpu:0'):
-        path_base = Path(FLAGS.dataset).parent.parent
+        path_base = Path(g_config['eval_dataset']).parent.parent
         _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
 
         def decode_feature(serialized):
@@ -82,9 +74,9 @@ def evaluate():
             decoded_image = tf.decode_raw(features['test/image'], tf.float32)
             decoded_image = tf.reshape(decoded_image, (256, 256, 3))
             decoded_shape = tf.sparse.to_dense(features['test/shape'])
-            decoded_shape = tf.reshape(decoded_shape, (FLAGS.num_patches, 2))
+            decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
             decoded_init = tf.sparse.to_dense(features['test/init'])
-            decoded_init = tf.reshape(decoded_init, (FLAGS.num_patches, 2))
+            decoded_init = tf.reshape(decoded_init, (g_config['num_patches'], 2))
             return decoded_image, decoded_shape, decoded_init
 
         def get_mirrored_image(image, shape, init):
@@ -112,15 +104,15 @@ def evaluate():
             tf_images, tf_inits, tf_images_m, tf_inits_m, tf_shapes = tf_iterator.get_next(name='batch')
 
         print('Loading model...')
-        with tf.device(FLAGS.device):
+        with tf.device(g_config['eval_device']):
             model = mdm_model.MDMModel(
                 tf_images,
                 tf_shapes,
                 tf_inits,
                 batch_size=1,
                 num_iterations=5,
-                num_patches=FLAGS.num_patches,
-                patch_shape=(FLAGS.patch_size, FLAGS.patch_size),
+                num_patches=g_config['num_patches'],
+                patch_shape=(g_config['patch_size'], g_config['patch_size']),
                 num_channels=3,
                 is_training=False
             )
@@ -131,13 +123,13 @@ def evaluate():
                 tf_inits_m,
                 batch_size=1,
                 num_iterations=5,
-                num_patches=FLAGS.num_patches,
-                patch_shape=(FLAGS.patch_size, FLAGS.patch_size),
+                num_patches=g_config['num_patches'],
+                patch_shape=(g_config['patch_size'], g_config['patch_size']),
                 num_channels=3,
                 is_training=False
             )
         tf_predictions = model.prediction
-        if FLAGS.use_mirror:
+        if g_config['use_mirror']:
             tf_predictions += tf.py_func(
                 flip_predictions, (model_m.prediction, (1, 256, 256, 3)), (tf.float32, )
             )[0]
@@ -158,17 +150,17 @@ def evaluate():
         tf_nme = model.normalized_mean_error(tf_ne)
 
         # Restore the moving average version of the learned variables for eval.
-        variable_averages = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY)
+        variable_averages = tf.train.ExponentialMovingAverage(g_config['MOVING_AVERAGE_DECAY'])
         variables_to_restore = variable_averages.variables_to_restore()
         saver = tf.train.Saver(variables_to_restore)
 
         graph_def = tf.get_default_graph().as_graph_def()
-        summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, graph_def=graph_def)
+        summary_writer = tf.summary.FileWriter(g_config['eval_dir'], graph_def=graph_def)
 
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.allow_growth = True
         with tf.Session(config=config) as sess:
-            ckpt = tf.train.get_checkpoint_state(FLAGS.ckpt_dir)
+            ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
             if ckpt and ckpt.model_checkpoint_path:
                 saver.restore(sess, ckpt.model_checkpoint_path)
                 # Assuming model_checkpoint_path looks something like:
@@ -180,7 +172,7 @@ def evaluate():
                 print('No checkpoint file found')
                 return
 
-            num_iter = FLAGS.num_examples
+            num_iter = g_config['num_examples']
             # Counts the number of correct predictions.
             errors = []
             mean_errors = []
@@ -188,7 +180,7 @@ def evaluate():
             total_sample_count = num_iter
             step = 0
 
-            print('%s: starting evaluation on (%s).' % (datetime.now(), FLAGS.dataset))
+            print('%s: starting evaluation on (%s).' % (datetime.now(), g_config['eval_dataset']))
             start_time = time.time()
             while step < num_iter:
                 rmse, rse, img = sess.run([tf_nme, tf_ne, tf_concat_images])
@@ -206,7 +198,7 @@ def evaluate():
                     start_time = time.time()
 
             errors = np.array(errors)
-            errors = np.reshape(errors, (-1, FLAGS.num_patches))
+            errors = np.reshape(errors, (-1, g_config['num_patches']))
             print(errors.shape)
             mean_errors = np.vstack(mean_errors).ravel()
             mean_rse = np.mean(errors, 0)
