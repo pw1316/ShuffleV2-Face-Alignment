@@ -178,10 +178,10 @@ def draw_landmarks_discrete(img, gtlms, prlms):
     img = img.copy()
     if gtlms is not None:
         for v in gtlms:
-            cv2.circle(img, (int(v[1]), int(v[0])), 1, (1, 1, 0), -1)
+            cv2.circle(img, (int(v[1]), int(v[0])), 1, (1, 0, 0), -1)
     if prlms is not None:
         for v in prlms:
-            cv2.circle(img, (int(v[1]), int(v[0])), 1, (0, 1, 0), -1)
+            cv2.circle(img, (int(v[1]), int(v[0])), 1, (1, 1, 1), -1)
     return img
 
 
