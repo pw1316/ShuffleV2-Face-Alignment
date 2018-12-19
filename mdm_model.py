@@ -104,14 +104,14 @@ class MDMModel:
                 (self.batch_size * self.num_patches, self.patch_shape[0], self.patch_shape[1], self.num_channels)
             )
             # Convolution 1
-            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_1')
+            inputs = self.conv2d(inputs, name='conv_1')
             self.visualize_cnn_mean(step, inputs, 'conv_1')
             net['conv_1'] = inputs
             inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
             net['pool_1'] = inputs
 
             # Convolution 2
-            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_2')
+            inputs = self.conv2d(inputs, name='conv_2')
             self.visualize_cnn_mean(step, inputs, 'conv_2')
             net['conv_2'] = inputs
             inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
