@@ -166,20 +166,23 @@ def evaluate():
                 print('No checkpoint file found')
                 return
 
+            eval_base = Path('Evaluate')
+            for i in range(10):
+                eval_path = eval_base / 'err{}'.format(i)
+                if not eval_path.exists():
+                    eval_path.mkdir(parents=True)
+
             num_iter = g_config['num_examples']
             # Counts the number of correct predictions.
             errors = []
             mean_errors = []
 
-            total_sample_count = num_iter
-            step = 0
-
             print('%s: starting evaluation on (%s).' % (datetime.now(), g_config['eval_dataset']))
             start_time = time.time()
-            while step < num_iter:
+            for step in range(num_iter):
                 rmse, rse, img = sess.run([tf_nme, tf_ne, model.out_images])
                 error_level = min(9, int(rmse[0] * 100))
-                plt.imsave('err{}/step{}.png'.format(error_level, step), img[0])
+                plt.imsave('Evaluate/err{}/step{}.png'.format(error_level, step), img[0])
                 errors.append(rse)
                 mean_errors.append(rmse)
                 step += 1
@@ -197,7 +200,7 @@ def evaluate():
             mean_errors = np.vstack(mean_errors).ravel()
             mean_rse = np.mean(errors, 0)
             mean_rmse = mean_errors.mean()
-            with open('errors.txt', 'w') as ofs:
+            with open('Evaluate/errors.txt', 'w') as ofs:
                 for row, avg in zip(errors, mean_errors):
                     for col in row:
                         ofs.write('%.4f, ' % col)
@@ -215,7 +218,7 @@ def evaluate():
             print('Errors', mean_errors.shape)
             print(
                 '%s: mean_rmse = %.4f, auc @ 0.05 = %.4f, auc @ 0.08 = %.4f [%d examples]' %
-                (datetime.now(), mean_errors.mean(), auc_at_05, auc_at_08, total_sample_count)
+                (datetime.now(), mean_errors.mean(), auc_at_05, auc_at_08, num_iter)
             )
             summary_writer.add_summary(ced_plot, global_step)
 
