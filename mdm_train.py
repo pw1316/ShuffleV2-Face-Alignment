@@ -128,9 +128,10 @@ def train(scope=''):
                 tf_shapes,
                 tf_initial_shapes,
                 batch_size=g_config['batch_size'],
-                num_iterations=5,
+                num_iterations=g_config['num_iterations'],
                 num_patches=g_config['num_patches'],
-                patch_shape=(g_config['patch_size'], g_config['patch_size'])
+                patch_shape=(g_config['patch_size'], g_config['patch_size']),
+                num_channels=3
             )
             with tf.name_scope('losses', values=tf_model.dxs + [tf_initial_shapes, tf_shapes]):
                 tf_total_loss = 0

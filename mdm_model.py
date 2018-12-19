@@ -19,7 +19,7 @@ def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
 class MDMModel:
     def __init__(
             self, images, shapes, inits,
-            batch_size=60, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3,
+            batch_size, num_iterations, num_patches, patch_shape, num_channels,
             is_training=True
     ):
         self.in_images = images
