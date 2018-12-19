@@ -94,34 +94,23 @@ class MDMModel:
                 (self.batch_size * self.num_patches, self.patch_shape[0], self.patch_shape[1], self.num_channels)
             )
             # Convolution 1
-            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_1')
-            inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_1')
-            inputs = tf.nn.relu(inputs, name='relu_1')
+            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_1')
             self.visualize_cnn_mean(step, inputs, 'conv_1')
             net['conv_1'] = inputs
             inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
             net['pool_1'] = inputs
 
             # Convolution 2
-            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_2')
-            inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_2')
-            inputs = tf.nn.relu(inputs, name='relu_2')
+            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name='conv_2')
             self.visualize_cnn_mean(step, inputs, 'conv_2')
             net['conv_2'] = inputs
             inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
             net['pool_2'] = inputs
 
-            # Convolution 3
-            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None, name='conv_3')
-            inputs = tf.layers.batch_normalization(inputs, training=self.is_training, name='bn_3')
-            inputs = tf.nn.relu(inputs, name='relu_3')
-            self.visualize_cnn_mean(step, inputs, 'conv_3')
-            net['conv_3'] = inputs
-            inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2])
-            net['pool_3'] = inputs
+            # Crop
             crop_size = inputs.get_shape().as_list()[1:3]
-            cropped = utils.get_central_crop(net['conv_3'], box=crop_size)
-            net['conv_3_cropped'] = cropped
+            cropped = utils.get_central_crop(net['conv_2'], box=crop_size)
+            net['conv_2_cropped'] = cropped
             inputs = tf.concat([cropped, inputs], 3)
 
             # Flatten

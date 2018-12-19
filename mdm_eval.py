@@ -91,7 +91,7 @@ def evaluate():
             mirrored_init = image_m.landmarks['init'].points.astype('float32')
             return image, init, mirrored_image, mirrored_init, shape
 
-        with tf.name_scope('data_provider', values=[]):
+        with tf.name_scope('DataProvider', values=[]):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'test.bin')])
             tf_dataset = tf_dataset.map(decode_feature)
             tf_dataset = tf_dataset.map(

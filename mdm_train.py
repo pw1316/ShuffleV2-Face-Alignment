@@ -27,7 +27,7 @@ def train(scope=''):
     with tf.Graph().as_default(), tf.device('/gpu:0'):
         # Global steps
         tf_global_step = tf.get_variable(
-            'global_step', [],
+            'GlobalStep', [],
             initializer=tf.constant_initializer(0),
             trainable=False
         )
@@ -39,7 +39,7 @@ def train(scope=''):
             g_config['learning_rate_step'],
             g_config['learning_rate_decay'],
             staircase=True,
-            name='learning_rate'
+            name='LearningRate'
         )
         tf.summary.scalar('learning_rate', tf_lr)
 
@@ -67,7 +67,7 @@ def train(scope=''):
         _pca_model = detect.create_generator(_pca_shapes, _pca_bbs)
         assert(_mean_shape.shape[0] == g_config['num_patches'])
 
-        tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='mean_shape')
+        tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
         def decode_feature(serialized):
             feature = {
@@ -103,7 +103,7 @@ def train(scope=''):
         def distort_color(image, shape, init_shape):
             return data_provider.distort_color(image), shape, init_shape
 
-        with tf.name_scope('data_provider', values=[tf_mean_shape]):
+        with tf.name_scope('DataProvider', values=[tf_mean_shape]):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'train.bin')])
             tf_dataset = tf_dataset.repeat()
             tf_dataset = tf_dataset.map(decode_feature)
@@ -111,7 +111,7 @@ def train(scope=''):
                 lambda x, y: tf.py_func(
                     get_random_sample, [x, y], [tf.float32, tf.float32],
                     stateful=True,
-                    name='random_sample'
+                    name='RandomSample'
                 )
             )
             tf_dataset = tf_dataset.map(partial(get_random_init_shape, mean_shape=tf_mean_shape, pca=_pca_model))
@@ -119,7 +119,7 @@ def train(scope=''):
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
             tf_dataset = tf_dataset.prefetch(7500)
             tf_iterator = tf_dataset.make_one_shot_iterator()
-            tf_images, tf_shapes, tf_initial_shapes = tf_iterator.get_next(name='batch')
+            tf_images, tf_shapes, tf_initial_shapes = tf_iterator.get_next(name='Batch')
 
         print('Defining model...')
         with tf.device(g_config['train_device']):
@@ -133,10 +133,10 @@ def train(scope=''):
                 patch_shape=(g_config['patch_size'], g_config['patch_size']),
                 num_channels=3
             )
-            with tf.name_scope('losses', values=tf_model.dxs + [tf_initial_shapes, tf_shapes]):
+            with tf.name_scope('Losses', values=tf_model.dxs + [tf_initial_shapes, tf_shapes]):
                 tf_total_loss = 0
                 for i, tf_dx in enumerate(tf_model.dxs):
-                    with tf.name_scope('step{}'.format(i)):
+                    with tf.name_scope('Step{}'.format(i)):
                         tf_norm_error = tf_model.normalized_rmse(tf_dx + tf_initial_shapes, tf_shapes)
                         tf_loss = tf.reduce_mean(tf_norm_error)
                     tf.summary.scalar('losses/step_{}'.format(i), tf_loss)
@@ -171,10 +171,10 @@ def train(scope=''):
             variables_averages_op = variable_averages.apply(variables_to_average)
 
         # Group all updates to into a single train op.
-        bn_updates_op = tf.group(*bn_updates, name='bn_group')
+        bn_updates_op = tf.group(*bn_updates, name='BNGroup')
         train_op = tf.group(
             apply_gradient_op, variables_averages_op, bn_updates_op,
-            name='train_group'
+            name='TrainGroup'
         )
 
         # Create a saver.
@@ -197,8 +197,7 @@ def train(scope=''):
         start_step = 0
         ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
         if ckpt and ckpt.model_checkpoint_path:
-            restorer = tf.train.Saver()
-            restorer.restore(sess, ckpt.model_checkpoint_path)
+            saver.restore(sess, ckpt.model_checkpoint_path)
             # Assuming model_checkpoint_path looks something like:
             #   /ckpt/train/model.ckpt-0,
             # extract global_step from it.
