@@ -91,7 +91,9 @@ ENV/
 .idea/
 .vscode/
 ckpt/
-Dataset/
+# including soft link
+Dataset
 Evaluate/
 extract_patches_op/*.so
 extract_patches_op/*.dll
+theano_mdm.pb
