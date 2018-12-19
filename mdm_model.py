@@ -79,6 +79,16 @@ class MDMModel:
             )
             tf.summary.image('images', self.out_images, max_outputs=10)
 
+    def conv2d(self, inputs, name):
+        return tf.layers.conv2d(inputs, 32, [3, 3], activation=tf.nn.relu, name=name)
+
+    def conv2d_bn(self, inputs, name):
+        with tf.name_scope(name, values=[inputs]):
+            inputs = tf.layers.conv2d(inputs, 32, [3, 3], activation=None)
+            inputs = tf.layers.batch_normalization(inputs, training=self.is_training)
+            inputs = tf.nn.relu(inputs)
+        return inputs
+
     def conv_model(self, inputs, step):
         """
         Construct the CNN
