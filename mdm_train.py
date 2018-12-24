@@ -120,6 +120,9 @@ def train(scope=''):
             tf_dataset = tf_dataset.prefetch(7500)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes, tf_initial_shapes = tf_iterator.get_next(name='Batch')
+            tf_images.set_shape([g_config['batch_size']] + _image_shape)
+            tf_shapes.set_shape([g_config['batch_size'], 73, 2])
+            tf_initial_shapes.set_shape([g_config['batch_size'], 73, 2])
 
         print('Defining model...')
         with tf.device(g_config['train_device']):
