@@ -133,18 +133,13 @@ def train(scope=''):
                 patch_shape=(g_config['patch_size'], g_config['patch_size']),
                 num_channels=3
             )
-            with tf.name_scope('Losses', values=tf_model.dxs + [tf_initial_shapes, tf_shapes]):
-                tf_total_loss = 0
-                for i, tf_dx in enumerate(tf_model.dxs):
-                    with tf.name_scope('Step{}'.format(i)):
-                        tf_norm_error = tf_model.normalized_rmse(tf_dx + tf_initial_shapes, tf_shapes)
-                        tf_loss = tf.reduce_mean(tf_norm_error)
-                    tf.summary.scalar('losses/step_{}'.format(i), tf_loss)
-                    tf_total_loss += tf_loss
-            tf.summary.scalar('losses/total', tf_total_loss)
+            with tf.name_scope('Losses', values=[tf_model.prediction, tf_shapes]):
+                tf_norm_error = tf_model.normalized_rmse(tf_model.prediction, tf_shapes)
+                tf_loss = tf.reduce_mean(tf_norm_error)
+            tf.summary.scalar('losses/total', tf_loss)
             # Calculate the gradients for the batch of data
-            tf_grads = opt.compute_gradients(tf_total_loss)
-        tf.summary.histogram('dx', tf_model.dx)
+            tf_grads = opt.compute_gradients(tf_loss)
+        tf.summary.histogram('dx', tf_model.prediction - tf_shapes)
 
         bn_updates = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope)
 
@@ -209,7 +204,7 @@ def train(scope=''):
         print('Starting training...')
         for step in range(start_step, g_config['max_steps']):
             start_time = time.time()
-            _, loss_value = sess.run([train_op, tf_total_loss])
+            _, loss_value = sess.run([train_op, tf_loss])
             duration = time.time() - start_time
 
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
