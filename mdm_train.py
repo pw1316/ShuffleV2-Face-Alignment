@@ -234,7 +234,7 @@ def train(scope=''):
             if step % 100 == 0:
                 examples_per_sec = g_config['batch_size'] / float(duration)
                 format_str = (
-                    '%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
+                    '%s: step %d, loss = %.4f (%.1f examples/sec; %.3f '
                     'sec/batch)')
                 print(format_str % (datetime.now(), step, loss_value,
                                     examples_per_sec, duration))
