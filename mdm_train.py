@@ -92,13 +92,32 @@ def train(scope=''):
                 theta = np.random.normal(scale=rotation_stddev)
                 rot = menpo.transform.rotate_ccw_about_centre(image.landmarks['PTS'], theta)
                 image = image.warp_to_shape(image.shape, rot)
+            proportion = float(np.random.rand() - 0.5) / 10.0
+            image = image.crop_to_landmarks_proportion(proportion, group='PTS')
+            image = image.resize((112, 112))
 
             random_image = image.pixels.transpose(1, 2, 0).astype('float32')
             random_shape = image.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
-        def get_random_init_shape(image, shape, mean_shape, pca):
-            return image, shape, data_provider.random_shape(shape, mean_shape, pca)
+        def get_init_shape(image, shape, mean_shape):
+            def norm(x):
+                return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
+            with tf.name_scope('align_shape_to_bb', values=[mean_shape]):
+                min_xy = tf.reduce_min(mean_shape, 0)
+                max_xy = tf.reduce_max(mean_shape, 0)
+                min_x, min_y = min_xy[0], min_xy[1]
+                max_x, max_y = max_xy[0], max_xy[1]
+                mean_shape_bb = tf.stack([[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]])
+                bb = tf.stack([[0, 0], [112, 0], [112, 112], [0, 112]])
+                ratio = norm(bb) / norm(mean_shape_bb)
+                initial_shape = tf.add(
+                    (mean_shape - tf.reduce_mean(mean_shape_bb, 0)) * ratio,
+                    tf.reduce_mean(bb, 0),
+                    name='initial_shape'
+                )
+                initial_shape.set_shape(tf_mean_shape.get_shape())
+            return image, shape, initial_shape
 
         def distort_color(image, shape, init_shape):
             return data_provider.distort_color(image), shape, init_shape
@@ -114,13 +133,13 @@ def train(scope=''):
                     name='RandomSample'
                 )
             )
-            tf_dataset = tf_dataset.map(partial(get_random_init_shape, mean_shape=tf_mean_shape, pca=_pca_model))
+            tf_dataset = tf_dataset.map(partial(get_init_shape, mean_shape=tf_mean_shape))
             tf_dataset = tf_dataset.map(distort_color)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
             tf_dataset = tf_dataset.prefetch(7500)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes, tf_initial_shapes = tf_iterator.get_next(name='Batch')
-            tf_images.set_shape([g_config['batch_size']] + _image_shape)
+            tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
             tf_shapes.set_shape([g_config['batch_size'], 73, 2])
             tf_initial_shapes.set_shape([g_config['batch_size'], 73, 2])
 
