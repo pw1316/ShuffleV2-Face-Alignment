@@ -92,8 +92,19 @@ def train(scope=''):
                 theta = np.random.normal(scale=rotation_stddev)
                 rot = menpo.transform.rotate_ccw_about_centre(image.landmarks['PTS'], theta)
                 image = image.warp_to_shape(image.shape, rot)
-            proportion = float(np.random.rand() - 0.5) / 10.0
-            image = image.crop_to_landmarks_proportion(proportion, group='PTS')
+            bb = image.landmarks['PTS'].bounding_box().points
+            miny, minx = np.min(bb, 0)
+            maxy, maxx = np.max(bb, 0)
+            bbsize = max(maxx - minx, maxy - miny)
+            center = [(miny + maxy) / 2., (minx + maxx) / 2.]
+            image.landmarks['bb'] = PointCloud(
+                [
+                    [center[0] - bbsize * 0.5, center[1] - bbsize * 0.5],
+                    [center[0] + bbsize * 0.5, center[1] + bbsize * 0.5],
+                ]
+            ).bounding_box()
+            proportion = 1.0 / 6.0 + float(np.random.rand() - 0.5) / 50.0
+            image = image.crop_to_landmarks_proportion(proportion, group='bb')
             image = image.resize((112, 112))
 
             random_image = image.pixels.transpose(1, 2, 0).astype('float32')
