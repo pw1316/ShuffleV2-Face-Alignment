@@ -109,7 +109,7 @@ def train(scope=''):
                 min_x, min_y = min_xy[0], min_xy[1]
                 max_x, max_y = max_xy[0], max_xy[1]
                 mean_shape_bb = tf.stack([[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]])
-                bb = tf.stack([[0, 0], [112, 0], [112, 112], [0, 112]])
+                bb = tf.stack([[0.0, 0.0], [112.0, 0.0], [112.0, 112.0], [0.0, 112.0]])
                 ratio = norm(bb) / norm(mean_shape_bb)
                 initial_shape = tf.add(
                     (mean_shape - tf.reduce_mean(mean_shape_bb, 0)) * ratio,

@@ -142,7 +142,7 @@ class MDMModel:
             with tf.variable_scope('Finalize'):
                 inputs = _conv2d(inputs, 1024, [1, 1], activation=tf.nn.relu, name='Convolution')
                 inputs = tf.layers.dropout(inputs, 0.2, training=self.is_training, name='Dropout')
-                inputs = tf.layers.average_pooling2d(inputs, [24, 24], [1, 1], name='AvgPooling')
+                inputs = tf.layers.average_pooling2d(inputs, [7, 7], [1, 1], name='AvgPooling')
             with tf.variable_scope('Predict'):
                 inputs = _conv2d(inputs, 146, [1, 1], name='Convolution')
                 inputs = tf.reshape(inputs, [-1, 73, 2])
