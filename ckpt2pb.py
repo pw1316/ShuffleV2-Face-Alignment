@@ -32,13 +32,16 @@ def ckpt_pb(pb_path):
         bb = np.vstack([[0.0, 0.0], [112.0, 0.0], [112.0, 112.0], [0.0, 112.0]])
         ratio = norm(bb) / norm(mean_shape_bb)
         _mean_shape = (_mean_shape - np.mean(mean_shape_bb, 0)) * ratio + np.mean(bb, 0)
+        _mean_shape = np.expand_dims(_mean_shape, 0)
+        print(_mean_shape.shape)
 
         tf_img = tf.placeholder(dtype=tf.float32, shape=(1, 112, 112, 3), name='inputs/input_img')
+        tf_dummy = tf.placeholder(dtype=tf.float32, shape=(1, 73, 2), name='inputs/input_shape')
         tf_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
         model = mdm_model.MDMModel(
             tf_img,
-            None,
+            tf_dummy,
             tf_shape,
             batch_size=1,
             num_iterations=g_config['num_iterations'],
