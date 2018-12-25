@@ -5,7 +5,7 @@
     "MOVING_AVERAGE_DECAY": 0.9999,
     "train_dataset": "Dataset/FW2/Images/*.png",
     "eval_dataset": "Dataset/FW2/Images/*.png",
-    "train_dir": "ckpt/train",
+    "train_dir": "ckpt/shuffle_v2",
     "eval_dir": "ckpt/eval",
     "train_device": "/gpu:0",
     "eval_device": "/cpu:0",
