@@ -53,19 +53,8 @@ def train(scope=''):
         )
         path_base = Path(g_config['train_dataset'].split(':')[0]).parent.parent
         _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
-        with Path(path_base / 'meta.txt').open('r') as ifs:
-            _image_shape = [int(x) for x in ifs.read().split(' ')]
+        _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         assert(isinstance(_mean_shape, np.ndarray))
-        _pca_shapes = []
-        _pca_bbs = []
-        for item in tf.io.tf_record_iterator(str(path_base / 'pca.bin')):
-            example = tf.train.Example()
-            example.ParseFromString(item)
-            _pca_shape = np.array(example.features.feature['pca/shape'].float_list.value).reshape((-1, 2))
-            _pca_bb = np.array(example.features.feature['pca/bb'].float_list.value).reshape((-1, 2))
-            _pca_shapes.append(PointCloud(_pca_shape))
-            _pca_bbs.append(PointCloud(_pca_bb))
-        _pca_model = detect.create_generator(_pca_shapes, _pca_bbs)
         assert(_mean_shape.shape[0] == g_config['num_patches'])
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
@@ -77,7 +66,7 @@ def train(scope=''):
             }
             features = tf.parse_single_example(serialized, features=feature)
             decoded_image = tf.decode_raw(features['train/image'], tf.float32)
-            decoded_image = tf.reshape(decoded_image, _image_shape)
+            decoded_image = tf.reshape(decoded_image, (336, 336, 3))
             decoded_shape = tf.sparse.to_dense(features['train/shape'])
             decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
             return decoded_image, decoded_shape
@@ -98,10 +87,11 @@ def train(scope=''):
             maxy, maxx = np.max(bb, 0)
             bbsize = max(maxx - minx, maxy - miny)
             center = [(miny + maxy) / 2., (minx + maxx) / 2.]
+            shift = (np.random.rand(2) - 0.5) / 3.
             image.landmarks['bb'] = PointCloud(
                 [
-                    [center[0] - bbsize * 0.5, center[1] - bbsize * 0.5],
-                    [center[0] + bbsize * 0.5, center[1] + bbsize * 0.5],
+                    [center[0] - bbsize * 0.5 + shift[0], center[1] - bbsize * 0.5 + shift[1]],
+                    [center[0] + bbsize * 0.5 + shift[0], center[1] + bbsize * 0.5 + shift[1]],
                 ]
             ).bounding_box()
             proportion = 1.0 / 6.0 + float(np.random.rand() - 0.5) / 50.0
@@ -112,24 +102,8 @@ def train(scope=''):
             random_shape = image.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
-        def get_init_shape(image, shape, mean_shape):
-            def norm(x):
-                return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
-            with tf.name_scope('align_shape_to_bb', values=[mean_shape]):
-                min_xy = tf.reduce_min(mean_shape, 0)
-                max_xy = tf.reduce_max(mean_shape, 0)
-                min_x, min_y = min_xy[0], min_xy[1]
-                max_x, max_y = max_xy[0], max_xy[1]
-                mean_shape_bb = tf.stack([[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]])
-                bb = tf.stack([[0.0, 0.0], [112.0, 0.0], [112.0, 112.0], [0.0, 112.0]])
-                ratio = norm(bb) / norm(mean_shape_bb)
-                initial_shape = tf.add(
-                    (mean_shape - tf.reduce_mean(mean_shape_bb, 0)) * ratio,
-                    tf.reduce_mean(bb, 0),
-                    name='initial_shape'
-                )
-                initial_shape.set_shape(tf_mean_shape.get_shape())
-            return image, shape, initial_shape
+        def get_init_shape(image, shape):
+            return image, shape, tf_mean_shape
 
         def distort_color(image, shape, init_shape):
             return data_provider.distort_color(image), shape, init_shape
@@ -145,7 +119,7 @@ def train(scope=''):
                     name='RandomSample'
                 )
             )
-            tf_dataset = tf_dataset.map(partial(get_init_shape, mean_shape=tf_mean_shape))
+            tf_dataset = tf_dataset.map(get_init_shape)
             tf_dataset = tf_dataset.map(distort_color)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
             tf_dataset = tf_dataset.prefetch(7500)
