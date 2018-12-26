@@ -142,8 +142,8 @@ def load_image(path, proportion, size):
     maxy, maxx = np.max(mp_image.landmarks['PTS'].bounding_box().points, 0)
     bbsize = max(maxx - minx, maxy - miny)
 
-    pady = int(max(max(bbsize * proportion - miny, 0), max(maxy + bbsize * proportion - mp_image.height, 0))) + 10
-    padx = int(max(max(bbsize * proportion - minx, 0), max(maxx + bbsize * proportion - mp_image.width, 0))) + 10
+    pady = int(max(max(bbsize * proportion - miny, 0), max(maxy + bbsize * proportion - mp_image.height, 0))) + 100
+    padx = int(max(max(bbsize * proportion - minx, 0), max(maxx + bbsize * proportion - mp_image.width, 0))) + 100
 
     c, h, w = mp_image.pixels.shape
     pad_image = np.random.rand(c, h + pady + pady, w + padx + padx)
