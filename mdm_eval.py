@@ -7,6 +7,7 @@ from __future__ import print_function
 from datetime import datetime
 from pathlib import Path
 
+import data_provider
 import menpo
 import matplotlib
 import matplotlib.pyplot as plt
@@ -66,6 +67,7 @@ def evaluate():
     with tf.Graph().as_default(), tf.device('/cpu:0'):
         path_base = Path(g_config['eval_dataset']).parent.parent
         _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
+        _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
 
         def decode_feature(serialized):
             feature = {
@@ -82,29 +84,45 @@ def evaluate():
             decoded_init = tf.reshape(decoded_init, (g_config['num_patches'], 2))
             return decoded_image, decoded_shape, decoded_init
 
-        def get_mirrored_image(image, shape, init):
-            # Read a random image with landmarks and bb
-            image_m = menpo.image.Image(image.transpose((2, 0, 1)))
-            image_m.landmarks['init'] = PointCloud(init)
-            image_m = utils.mirror_image(image_m)
-            mirrored_image = image_m.pixels.transpose(1, 2, 0).astype('float32')
-            mirrored_init = image_m.landmarks['init'].points.astype('float32')
-            return image, init, mirrored_image, mirrored_init, shape
+        def scale_image(image, shape):
+            mp_image = menpo.image.Image(image.transpose((2, 0, 1)))
+            mp_image.landmarks['PTS'] = PointCloud(shape)
+
+            bb = mp_image.landmarks['PTS'].bounding_box().points
+            miny, minx = np.min(bb, 0)
+            maxy, maxx = np.max(bb, 0)
+            bbsize = max(maxx - minx, maxy - miny)
+            center = [(miny + maxy) / 2., (minx + maxx) / 2.]
+            mp_image.landmarks['bb'] = PointCloud(
+                [
+                    [center[0] - bbsize * 0.5, center[1] - bbsize * 0.5],
+                    [center[0] + bbsize * 0.5, center[1] + bbsize * 0.5],
+                ]
+            ).bounding_box()
+            mp_image = mp_image.crop_to_landmarks_proportion(1. / 6., group='bb')
+            mp_image = mp_image.resize((112, 112))
+            image = mp_image.pixels.transpose((1, 2, 0))
+            shape = mp_image.landmarks['PTS'].points
+            init = _mean_shape
+            return image.astype(np.float32), shape.astype(np.float32), init.astype(np.float32)
 
         with tf.name_scope('DataProvider', values=[]):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'test.bin')])
             tf_dataset = tf_dataset.map(decode_feature)
             tf_dataset = tf_dataset.map(
-                lambda x, y, z: tf.py_func(
-                    get_mirrored_image, [x, y, z], [tf.float32, tf.float32, tf.float32, tf.float32, tf.float32],
+                lambda x, y, _: tf.py_func(
+                    scale_image, [x, y], [tf.float32, tf.float32, tf.float32],
                     stateful=False,
-                    name='mirror'
+                    name='scale'
                 )
             )
             tf_dataset = tf_dataset.batch(1)
             tf_dataset = tf_dataset.prefetch(5000)
             tf_iterator = tf_dataset.make_one_shot_iterator()
-            tf_images, tf_inits, tf_images_m, tf_inits_m, tf_shapes = tf_iterator.get_next(name='batch')
+            tf_images, tf_shapes, tf_inits = tf_iterator.get_next(name='batch')
+            tf_images.set_shape((1, 112, 112, 3))
+            tf_inits.set_shape((1, 73, 2))
+            tf_shapes.set_shape((1, 73, 2))
 
         print('Loading model...')
         with tf.device(g_config['eval_device']):
@@ -119,24 +137,7 @@ def evaluate():
                 num_channels=3,
                 is_training=False
             )
-            tf.get_variable_scope().reuse_variables()
-            model_m = mdm_model.MDMModel(
-                tf_images_m,
-                tf_shapes,
-                tf_inits_m,
-                batch_size=1,
-                num_iterations=g_config['num_iterations'],
-                num_patches=g_config['num_patches'],
-                patch_shape=(g_config['patch_size'], g_config['patch_size']),
-                num_channels=3,
-                is_training=False
-            )
         tf_predictions = model.prediction
-        if g_config['use_mirror']:
-            tf_predictions += tf.py_func(
-                flip_predictions, (model_m.prediction, (1, 256, 256, 3)), (tf.float32, )
-            )[0]
-            tf_predictions /= 2.
 
         # Calculate predictions.
         # tf_nme = model.normalized_rmse(tf_predictions, tf_shapes)

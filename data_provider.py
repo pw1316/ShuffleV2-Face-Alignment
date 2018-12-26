@@ -66,6 +66,22 @@ def align_reference_shape(reference_shape, bb):
     return initial_shape
 
 
+def align_reference_shape_to_112(reference_shape):
+    assert isinstance(reference_shape, np.ndarray)
+
+    def norm(x):
+        return np.sqrt(np.sum(np.square(x - np.mean(x, 0))))
+    min_xy = np.min(reference_shape, 0)
+    max_xy = np.max(reference_shape, 0)
+    min_x, min_y = min_xy[0], min_xy[1]
+    max_x, max_y = max_xy[0], max_xy[1]
+    reference_shape_bb = np.vstack([[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]])
+    bb = np.vstack([[0.0, 0.0], [112.0, 0.0], [112.0, 112.0], [0.0, 112.0]])
+    ratio = norm(bb) / norm(reference_shape_bb)
+    reference_shape = (reference_shape - np.mean(reference_shape_bb, 0)) * ratio + np.mean(bb, 0)
+    return reference_shape
+
+
 def random_shape(tf_shape, tf_mean_shape, pca_model):
     """Generates a new shape estimate given the ground truth shape.
 
