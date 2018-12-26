@@ -28,9 +28,11 @@ def _conv2d(
         name='Convolution'
 ):
     with tf.variable_scope(name, values=[inputs]):
-        inputs = tf.layers.conv2d(inputs, filters, kernel_size, strides, padding='same', use_bias=use_bias)
+        inputs = tf.layers.conv2d(
+            inputs, filters, kernel_size, strides, padding='same', use_bias=use_bias, name='Conv2D'
+        )
         if use_bn:
-            inputs = tf.layers.batch_normalization(inputs, training=training)
+            inputs = tf.layers.batch_normalization(inputs, training=training, name='BatchNorm')
         if activation is not None:
             inputs = activation(inputs)
     return inputs
@@ -45,18 +47,18 @@ def _conv2d_dw(
         use_bias=True,
         use_bn=False,
         training=False,
-        name='ConvolutionDepthWise'
+        name='DepthWiseConvolution'
 ):
     with tf.variable_scope(name, values=[inputs]):
         layer = tf.keras.layers.DepthwiseConv2D(
             kernel_size, strides,
-            padding='same', use_bias=use_bias)
+            padding='same', use_bias=use_bias, name='DWConv2D')
         inputs = layer.apply(inputs)
         if use_bn:
-            inputs = tf.layers.batch_normalization(inputs, training=training)
-        inputs = tf.layers.conv2d(inputs, filters, [1, 1], padding='same', use_bias=use_bias)
+            inputs = tf.layers.batch_normalization(inputs, training=training, name='BatchNorm1')
+        inputs = tf.layers.conv2d(inputs, filters, [1, 1], padding='same', use_bias=use_bias, name='Conv2D')
         if use_bn:
-            inputs = tf.layers.batch_normalization(inputs, training=training)
+            inputs = tf.layers.batch_normalization(inputs, training=training, name='BatchNorm2')
         if activation is not None:
             inputs = activation(inputs)
     return inputs
@@ -80,7 +82,7 @@ def _shuffle_block(
             )
             left = _conv2d_dw(
                 left, out_filters // 2, kernel_size, strides,
-                activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='Convolution3x3DepthWise'
+                activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='DepthWiseConvolution3x3'
             )
             right = _conv2d_dw(
                 inputs, out_filters // 2, kernel_size, strides,
@@ -99,7 +101,7 @@ def _shuffle_block(
                 )
                 left = _conv2d_dw(
                     left, out_filters // 2, kernel_size, [1, 1],
-                    activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='Convolution3x3DepthWise'
+                    activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='DepthWiseConvolution3x3'
                 )
         return tf.concat([left, right], -1)
 
@@ -153,6 +155,55 @@ class MDMModel:
                 [tf.float32]
             )
             tf.summary.image('images', self.out_images, max_outputs=10)
+
+        # For tuning
+        with tf.gfile.GFile('graph.pb', 'rb') as f:
+            graph_def = tf.GraphDef()
+            graph_def.ParseFromString(f.read())
+        tf.import_graph_def(graph_def, name='Original')
+        self.var_map = {}
+        for i in range(4):
+            self.map_shuffle_block(1, i)
+        for i in range(8):
+            self.map_shuffle_block(2, i)
+        for i in range(4):
+            self.map_shuffle_block(3, i)
+        self.var_map['Network/Finalize/Convolution/Conv2D/kernel:0'] = 'Original/Stage1/Conv5/weights:0'
+        self.var_map['Network/Finalize/Convolution/Conv2D/bias:0'] = 'Original/Stage1/Conv5/biases:0'
+
+    def map_conv2d_bn(self, src, dst):
+        self.var_map[dst + '/Conv2D/kernel:0'] = src + '/weights:0'
+        self.var_map[dst + '/BatchNorm/beta:0'] = src + '/BatchNorm/beta:0'
+        self.var_map[dst + '/BatchNorm/gamma:0'] = src + '/BatchNorm/Const:0'
+        self.var_map[dst + '/BatchNorm/moving_mean:0'] = src + '/BatchNorm/moving_mean:0'
+        self.var_map[dst + '/BatchNorm/moving_variance:0'] = src + '/BatchNorm/moving_variance:0'
+
+    def map_conv2d_dw_bn(self, src, dst):
+        self.var_map[dst + '/DWConv2D/depthwise_kernel:0'] = src + '/SeparableConv2d/depthwise_weights:0'
+        self.var_map[dst + '/BatchNorm1/beta:0'] = src + '/SeparableConv2d/BatchNorm/beta:0'
+        self.var_map[dst + '/BatchNorm1/gamma:0'] = src + '/SeparableConv2d/BatchNorm/Const:0'
+        self.var_map[dst + '/BatchNorm1/moving_mean:0'] = src + '/SeparableConv2d/BatchNorm/moving_mean:0'
+        self.var_map[dst + '/BatchNorm1/moving_variance:0'] = src + '/SeparableConv2d/BatchNorm/moving_variance:0'
+        self.var_map[dst + '/Conv2D/kernel:0'] = src + '/conv1x1_after/weights:0'
+        self.var_map[dst + '/BatchNorm2/beta:0'] = src + '/conv1x1_after/BatchNorm/beta:0'
+        self.var_map[dst + '/BatchNorm2/gamma:0'] = src + '/conv1x1_after/BatchNorm/Const:0'
+        self.var_map[dst + '/BatchNorm2/moving_mean:0'] = src + '/conv1x1_after/BatchNorm/moving_mean:0'
+        self.var_map[dst + '/BatchNorm2/moving_variance:0'] = src + '/conv1x1_after/BatchNorm/moving_variance:0'
+
+    def map_shuffle_block(self, sid, uid):
+        self.map_conv2d_bn(
+            'Original/Stage1/Stage{}/unit_{}/conv1x1_before'.format(sid + 1, uid + 1),
+            'Network/ShuffleBlock{}/Unit{}/Convolution1x1'.format(sid, uid)
+        )
+        self.map_conv2d_dw_bn(
+            'Original/Stage1/Stage{}/unit_{}'.format(sid + 1, uid + 1),
+            'Network/ShuffleBlock{}/Unit{}/DepthWiseConvolution3x3'.format(sid, uid)
+        )
+        if uid == 0:
+            self.map_conv2d_dw_bn(
+                'Original/Stage1/Stage{}/unit_{}/second_branch'.format(sid + 1, uid + 1),
+                'Network/ShuffleBlock{}/Unit{}/Bypass'.format(sid, uid)
+            )
 
     def visualize_patches(self, step, inputs):
         """

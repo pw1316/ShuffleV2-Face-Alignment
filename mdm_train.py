@@ -20,11 +20,12 @@ with open(tf.flags.FLAGS.c, 'r') as g_config:
 for k in g_config:
     print(k, type(g_config[k]), g_config[k])
 input('OK?(Y/N): ')
+TUNE = False
 
 
 def train(scope=''):
     """Train on dataset for a number of steps."""
-    with tf.Graph().as_default(), tf.device('/gpu:0'):
+    with tf.Graph().as_default() as graph, tf.device('/gpu:0'):
         # Global steps
         tf_global_step = tf.get_variable(
             'GlobalStep', [],
@@ -155,6 +156,13 @@ def train(scope=''):
             tf_initial_shapes.set_shape([g_config['batch_size'], 73, 2])
 
         print('Defining model...')
+        # Original model
+        with tf.gfile.GFile('graph.pb', 'rb') as f:
+            graph_def = tf.GraphDef()
+            graph_def.ParseFromString(f.read())
+        tf.import_graph_def(graph_def, name='Original')
+
+        # My model
         with tf.device(g_config['train_device']):
             tf_model = mdm_model.MDMModel(
                 tf_images,
@@ -189,10 +197,6 @@ def train(scope=''):
         for var in tf.trainable_variables():
             tf.summary.histogram(var.op.name, var)
 
-        # Track the moving averages of all trainable variables.
-        # Note that we maintain a "double-average" of the BatchNormalization
-        # global statistics. This is more complicated then need be but we employ
-        # this for backward-compatibility with our previous models.
         with tf.name_scope('MovingAverage', values=[tf_global_step]):
             variable_averages = tf.train.ExponentialMovingAverage(g_config['MOVING_AVERAGE_DECAY'], tf_global_step)
             variables_to_average = (tf.trainable_variables() + tf.moving_average_variables())
@@ -231,6 +235,18 @@ def train(scope=''):
             # extract global_step from it.
             start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]) + 1
             print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['train_dir']))
+        elif TUNE:
+            assign_op = []
+            vvv = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+            cnt = 0
+            for v in vvv:
+                if v.name in tf_model.var_map:
+                    assign_op.append(v.assign(graph.get_tensor_by_name(tf_model.var_map[v.name])))
+                    cnt += 1
+                else:
+                    print(v.name)
+            sess.run(assign_op)
+            print('%s: Pre-trained model restored from graph.pb %d/%d' % (datetime.now(), cnt, len(vvv)))
 
         summary_writer = tf.summary.FileWriter(g_config['train_dir'], sess.graph)
 
