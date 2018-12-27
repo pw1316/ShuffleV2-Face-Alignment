@@ -86,14 +86,14 @@ def train(scope=''):
             maxy, maxx = np.max(bb, 0)
             bbsize = max(maxx - minx, maxy - miny)
             center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-            shift = (np.random.rand(2) - 0.5) / 3. * bbsize
+            shift = (np.random.rand(2) - 0.5) / 6. * bbsize
             image.landmarks['bb'] = PointCloud(
                 [
                     [center[0] - bbsize * 0.5 + shift[0], center[1] - bbsize * 0.5 + shift[1]],
                     [center[0] + bbsize * 0.5 + shift[0], center[1] + bbsize * 0.5 + shift[1]],
                 ]
             ).bounding_box()
-            proportion = 1.0 / 6.0 + float(np.random.rand() - 0.5) / 50.0
+            proportion = 1.0 / 6.0 + float(np.random.rand() - 0.5) / 10.0
             image = image.crop_to_landmarks_proportion(proportion, group='bb')
             image = image.resize((112, 112))
 
