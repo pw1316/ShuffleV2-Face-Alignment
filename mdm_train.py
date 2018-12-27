@@ -19,7 +19,7 @@ with open(tf.flags.FLAGS.c, 'r') as g_config:
 for k in g_config:
     print(k, type(g_config[k]), g_config[k])
 input('OK?(Y/N): ')
-TUNE = False
+TUNE = True
 
 
 def train(scope=''):
