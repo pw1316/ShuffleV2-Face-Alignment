@@ -130,15 +130,15 @@ class MDMModel:
                 )
                 inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2], name='MaxPooling')
             inputs = _shuffle_block(
-                inputs, 64, 96, [3, 3], [2, 2], 4,
+                inputs, 64, 96, [3, 3], [2, 2], 5,
                 training=self.is_training, name='ShuffleBlock1'
             )
             inputs = _shuffle_block(
-                inputs, 96, 192, [3, 3], [2, 2], 8,
+                inputs, 96, 192, [3, 3], [2, 2], 10,
                 training=self.is_training, name='ShuffleBlock2'
             )
             inputs = _shuffle_block(
-                inputs, 192, 384, [3, 3], [2, 2], 4,
+                inputs, 192, 384, [3, 3], [2, 2], 5,
                 training=self.is_training, name='ShuffleBlock3'
             )
             with tf.variable_scope('Finalize'):
