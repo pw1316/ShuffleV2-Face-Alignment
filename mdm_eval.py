@@ -77,47 +77,18 @@ def evaluate():
             }
             features = tf.parse_single_example(serialized, features=feature)
             decoded_image = tf.decode_raw(features['test/image'], tf.float32)
-            decoded_image = tf.reshape(decoded_image, (256, 256, 3))
+            decoded_image = tf.reshape(decoded_image, (112, 112, 3))
             decoded_shape = tf.sparse.to_dense(features['test/shape'])
             decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
             decoded_init = tf.sparse.to_dense(features['test/init'])
             decoded_init = tf.reshape(decoded_init, (g_config['num_patches'], 2))
             return decoded_image, decoded_shape, decoded_init
 
-        def scale_image(image, shape):
-            mp_image = menpo.image.Image(image.transpose((2, 0, 1)))
-            mp_image.landmarks['PTS'] = PointCloud(shape)
-
-            bb = mp_image.landmarks['PTS'].bounding_box().points
-            miny, minx = np.min(bb, 0)
-            maxy, maxx = np.max(bb, 0)
-            bbsize = max(maxx - minx, maxy - miny)
-            center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-            mp_image.landmarks['bb'] = PointCloud(
-                [
-                    [center[0] - bbsize * 0.5, center[1] - bbsize * 0.5],
-                    [center[0] + bbsize * 0.5, center[1] + bbsize * 0.5],
-                ]
-            ).bounding_box()
-            mp_image = mp_image.crop_to_landmarks_proportion(1. / 6., group='bb')
-            mp_image = mp_image.resize((112, 112))
-            image = mp_image.pixels.transpose((1, 2, 0))
-            shape = mp_image.landmarks['PTS'].points
-            init = _mean_shape
-            return image.astype(np.float32), shape.astype(np.float32), init.astype(np.float32)
-
         with tf.name_scope('DataProvider', values=[]):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'test.bin')])
             tf_dataset = tf_dataset.map(decode_feature)
-            tf_dataset = tf_dataset.map(
-                lambda x, y, _: tf.py_func(
-                    scale_image, [x, y], [tf.float32, tf.float32, tf.float32],
-                    stateful=False,
-                    name='scale'
-                )
-            )
             tf_dataset = tf_dataset.batch(1)
-            tf_dataset = tf_dataset.prefetch(5000)
+            tf_dataset = tf_dataset.prefetch(1000)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes, tf_inits = tf_iterator.get_next(name='batch')
             tf_images.set_shape((1, 112, 112, 3))
