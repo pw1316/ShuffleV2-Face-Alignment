@@ -3,6 +3,7 @@ import mdm_model
 from pathlib import Path
 import menpo.io as mio
 import numpy as np
+import data_provider
 import json
 
 tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
@@ -20,19 +21,9 @@ def ckpt_pb(pb_path):
     with tf.Session() as sess:
         path_base = Path(g_config['eval_dataset']).parent.parent
         _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
-        assert isinstance(_mean_shape, np.ndarray)
-
-        def norm(x):
-            return np.sqrt(np.sum(np.square(x - np.mean(x, 0))))
-        min_xy = np.min(_mean_shape, 0)
-        max_xy = np.max(_mean_shape, 0)
-        min_x, min_y = min_xy[0], min_xy[1]
-        max_x, max_y = max_xy[0], max_xy[1]
-        mean_shape_bb = np.vstack([[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]])
-        bb = np.vstack([[0.0, 0.0], [112.0, 0.0], [112.0, 112.0], [0.0, 112.0]])
-        ratio = norm(bb) / norm(mean_shape_bb)
-        _mean_shape = (_mean_shape - np.mean(mean_shape_bb, 0)) * ratio + np.mean(bb, 0)
+        _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         _mean_shape = np.expand_dims(_mean_shape, 0)
+        assert isinstance(_mean_shape, np.ndarray)
         print(_mean_shape.shape)
 
         tf_img = tf.placeholder(dtype=tf.float32, shape=(1, 112, 112, 3), name='inputs/input_img')
@@ -70,4 +61,4 @@ def ckpt_pb(pb_path):
             f.write(output_graph_def.SerializeToString())
 
 
-ckpt_pb('graph.pb')
+ckpt_pb('shuffle.pb')
