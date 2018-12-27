@@ -10,7 +10,6 @@ import time
 import utils
 import menpo
 import menpo.io as mio
-import detect
 from menpo.shape.pointcloud import PointCloud
 import json
 
@@ -87,7 +86,7 @@ def train(scope=''):
             maxy, maxx = np.max(bb, 0)
             bbsize = max(maxx - minx, maxy - miny)
             center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-            shift = (np.random.rand(2) - 0.5) / 3.
+            shift = (np.random.rand(2) - 0.5) / 3. * bbsize
             image.landmarks['bb'] = PointCloud(
                 [
                     [center[0] - bbsize * 0.5 + shift[0], center[1] - bbsize * 0.5 + shift[1]],
@@ -130,13 +129,6 @@ def train(scope=''):
             tf_initial_shapes.set_shape([g_config['batch_size'], 73, 2])
 
         print('Defining model...')
-        # Original model
-        with tf.gfile.GFile('graph.pb', 'rb') as f:
-            graph_def = tf.GraphDef()
-            graph_def.ParseFromString(f.read())
-        tf.import_graph_def(graph_def, name='Original')
-
-        # My model
         with tf.device(g_config['train_device']):
             tf_model = mdm_model.MDMModel(
                 tf_images,
