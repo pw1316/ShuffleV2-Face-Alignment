@@ -1,7 +1,5 @@
 {
-    "num_iterations": 5,
     "num_patches": 73,
-    "patch_size": 30,
     "MOVING_AVERAGE_DECAY": 0.9999,
     "train_dataset": "Dataset/FW2Shuffle/Images/*.png",
     "eval_dataset": "Dataset/FW2Shuffle/Images/*.png",

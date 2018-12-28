@@ -68,6 +68,7 @@ def evaluate():
         path_base = Path(g_config['eval_dataset']).parent.parent
         _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
+        tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
         def decode_feature(serialized):
             feature = {
@@ -80,9 +81,7 @@ def evaluate():
             decoded_image = tf.reshape(decoded_image, (112, 112, 3))
             decoded_shape = tf.sparse.to_dense(features['test/shape'])
             decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
-            decoded_init = tf.sparse.to_dense(features['test/init'])
-            decoded_init = tf.reshape(decoded_init, (g_config['num_patches'], 2))
-            return decoded_image, decoded_shape, decoded_init
+            return decoded_image, decoded_shape
 
         with tf.name_scope('DataProvider', values=[]):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'test.bin')])
@@ -90,9 +89,8 @@ def evaluate():
             tf_dataset = tf_dataset.batch(1)
             tf_dataset = tf_dataset.prefetch(1000)
             tf_iterator = tf_dataset.make_one_shot_iterator()
-            tf_images, tf_shapes, tf_inits = tf_iterator.get_next(name='batch')
+            tf_images, tf_shapes = tf_iterator.get_next(name='batch')
             tf_images.set_shape((1, 112, 112, 3))
-            tf_inits.set_shape((1, 73, 2))
             tf_shapes.set_shape((1, 73, 2))
 
         print('Loading model...')
@@ -100,11 +98,9 @@ def evaluate():
             model = mdm_model.MDMModel(
                 tf_images,
                 tf_shapes,
-                tf_inits,
+                tf_mean_shape,
                 batch_size=1,
-                num_iterations=g_config['num_iterations'],
                 num_patches=g_config['num_patches'],
-                patch_shape=(g_config['patch_size'], g_config['patch_size']),
                 num_channels=3,
                 is_training=False
             )

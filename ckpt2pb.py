@@ -22,22 +22,19 @@ def ckpt_pb(pb_path):
         path_base = Path(g_config['eval_dataset']).parent.parent
         _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
-        _mean_shape = np.expand_dims(_mean_shape, 0)
         assert isinstance(_mean_shape, np.ndarray)
         print(_mean_shape.shape)
 
         tf_img = tf.placeholder(dtype=tf.float32, shape=(1, 112, 112, 3), name='inputs/input_img')
         tf_dummy = tf.placeholder(dtype=tf.float32, shape=(1, 73, 2), name='inputs/input_shape')
-        tf_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
+        tf_shape = tf.constant(_mean_shape, dtype=tf.float32, shape=(73, 2), name='MeanShape')
 
         model = mdm_model.MDMModel(
             tf_img,
             tf_dummy,
             tf_shape,
             batch_size=1,
-            num_iterations=g_config['num_iterations'],
             num_patches=g_config['num_patches'],
-            patch_shape=(g_config['patch_size'], g_config['patch_size']),
             num_channels=3,
             is_training=False
         )

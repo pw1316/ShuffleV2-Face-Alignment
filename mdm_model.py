@@ -76,31 +76,31 @@ def _shuffle_block(
 ):
     with tf.variable_scope(name, values=[inputs]):
         with tf.variable_scope('Unit0'):
-            left = _conv2d(
+            left = _conv2d_dw(
+                inputs, out_filters // 2, kernel_size, strides,
+                activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='Bypass'
+            )
+            right = _conv2d(
                 inputs, in_filters, [1, 1],
                 activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='Convolution1x1'
             )
-            left = _conv2d_dw(
-                left, out_filters // 2, kernel_size, strides,
-                activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='DepthWiseConvolution3x3'
-            )
             right = _conv2d_dw(
-                inputs, out_filters // 2, kernel_size, strides,
-                activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='Bypass'
+                right, out_filters // 2, kernel_size, strides,
+                activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='DepthWiseConvolution3x3'
             )
         for i in range(1, depth):
             with tf.variable_scope('Unit{}'.format(i)):
                 with tf.name_scope('ChannelShuffle'):
                     ll, lr = tf.split(left, [out_filters // 4, out_filters // 4], -1)
                     rl, rr = tf.split(right, [out_filters // 4, out_filters // 4], -1)
-                    left = tf.concat([ll, rr], -1)
-                    right = tf.concat([rl, lr], -1)
-                left = _conv2d(
-                    left, out_filters // 2, [1, 1],
+                    left = tf.concat([ll, rl], -1)
+                    right = tf.concat([lr, rr], -1)
+                right = _conv2d(
+                    right, out_filters // 2, [1, 1],
                     activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='Convolution1x1'
                 )
-                left = _conv2d_dw(
-                    left, out_filters // 2, kernel_size, [1, 1],
+                right = _conv2d_dw(
+                    right, out_filters // 2, kernel_size, [1, 1],
                     activation=tf.nn.relu, use_bias=False, use_bn=True, training=training, name='DepthWiseConvolution3x3'
                 )
         return tf.concat([left, right], -1)
@@ -108,47 +108,45 @@ def _shuffle_block(
 
 class MDMModel:
     def __init__(
-            self, images, shapes, inits,
-            batch_size, num_iterations, num_patches, patch_shape, num_channels,
+            self, images, shapes, mean_shape,
+            batch_size, num_patches, num_channels,
             is_training=True
     ):
         self.in_images = images
         self.in_shapes = shapes
-        self.in_init_shapes = inits
+        self.in_mean_shape = mean_shape
         self.batch_size = batch_size
-        self.num_iterations = num_iterations
         self.num_patches = num_patches
-        self.patch_shape = patch_shape
         self.num_channels = num_channels
         self.is_training = is_training
 
-        with tf.variable_scope('Network', values=[self.in_init_shapes]):
+        with tf.variable_scope('Network', values=[self.in_mean_shape]):
             with tf.variable_scope('Initial'):
                 inputs = _conv2d(
-                    self.in_images, 64, [3, 3],
+                    self.in_images, 256, [3, 3],
                     activation=tf.nn.relu, use_bias=False, use_bn=True, training=self.is_training, name='Convolution'
                 )
                 inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2], name='MaxPooling')
             inputs = _shuffle_block(
-                inputs, 64, 96, [3, 3], [2, 2], 5,
+                inputs, 256, 488, [3, 3], [2, 2], 4,
                 training=self.is_training, name='ShuffleBlock1'
             )
             inputs = _shuffle_block(
-                inputs, 96, 192, [3, 3], [2, 2], 10,
+                inputs, 488, 976, [3, 3], [2, 2], 8,
                 training=self.is_training, name='ShuffleBlock2'
             )
             inputs = _shuffle_block(
-                inputs, 192, 384, [3, 3], [2, 2], 5,
+                inputs, 976, 1952, [3, 3], [2, 2], 4,
                 training=self.is_training, name='ShuffleBlock3'
             )
             with tf.variable_scope('Finalize'):
-                inputs = _conv2d(inputs, 1024, [1, 1], activation=tf.nn.relu, name='Convolution')
+                inputs = _conv2d(inputs, 2048, [1, 1], activation=tf.nn.relu, name='Convolution')
                 inputs = tf.layers.dropout(inputs, 0.2, training=self.is_training, name='Dropout')
                 inputs = tf.layers.average_pooling2d(inputs, [7, 7], [1, 1], name='AvgPooling')
             with tf.variable_scope('Predict'):
                 inputs = _conv2d(inputs, 146, [1, 1], name='Convolution')
                 inputs = tf.reshape(inputs, [-1, 73, 2])
-                self.prediction = inputs + self.in_init_shapes
+                self.prediction = inputs + self.in_mean_shape
             self.out_images, = tf.py_func(
                 utils.batch_draw_landmarks_discrete,
                 [self.in_images, self.in_shapes, self.prediction],
@@ -204,21 +202,6 @@ class MDMModel:
                 'Original/Stage1/Stage{}/unit_{}/second_branch'.format(sid + 1, uid + 1),
                 'Network/ShuffleBlock{}/Unit{}/Bypass'.format(sid, uid)
             )
-
-    def visualize_patches(self, step, inputs):
-        """
-        Visualize Feature Map
-        Args:
-            step(int): RNN step
-            inputs: Tensor with shape [n, num_landmarks, patch_shape, patch_shape, 3]
-        Returns:
-            None
-        """
-        with tf.name_scope('visualize', values=[inputs]):
-            inputs = inputs[:10]
-            inputs = tf.transpose(inputs, (0, 2, 1, 3, 4))
-            inputs = tf.reshape(inputs, (1, -1, self.num_patches * self.patch_shape[1], 3))
-        tf.summary.image('patches/step{}'.format(step), inputs)
 
     def visualize_cnn(self, step, inputs, name):
         """

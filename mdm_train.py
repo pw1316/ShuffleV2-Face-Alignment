@@ -101,13 +101,10 @@ def train(scope=''):
             random_shape = image.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
-        def get_init_shape(image, shape):
-            return image, shape, tf_mean_shape
+        def distort_color(image, shape):
+            return data_provider.distort_color(image), shape
 
-        def distort_color(image, shape, init_shape):
-            return data_provider.distort_color(image), shape, init_shape
-
-        with tf.name_scope('DataProvider', values=[tf_mean_shape]):
+        with tf.name_scope('DataProvider'):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'train.bin')])
             tf_dataset = tf_dataset.repeat()
             tf_dataset = tf_dataset.map(decode_feature)
@@ -118,26 +115,22 @@ def train(scope=''):
                     name='RandomSample'
                 )
             )
-            tf_dataset = tf_dataset.map(get_init_shape)
             tf_dataset = tf_dataset.map(distort_color)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
             tf_dataset = tf_dataset.prefetch(7500)
             tf_iterator = tf_dataset.make_one_shot_iterator()
-            tf_images, tf_shapes, tf_initial_shapes = tf_iterator.get_next(name='Batch')
+            tf_images, tf_shapes = tf_iterator.get_next(name='Batch')
             tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
             tf_shapes.set_shape([g_config['batch_size'], 73, 2])
-            tf_initial_shapes.set_shape([g_config['batch_size'], 73, 2])
 
         print('Defining model...')
         with tf.device(g_config['train_device']):
             tf_model = mdm_model.MDMModel(
                 tf_images,
                 tf_shapes,
-                tf_initial_shapes,
+                tf_mean_shape,
                 batch_size=g_config['batch_size'],
-                num_iterations=g_config['num_iterations'],
                 num_patches=g_config['num_patches'],
-                patch_shape=(g_config['patch_size'], g_config['patch_size']),
                 num_channels=3
             )
             with tf.name_scope('Losses', values=[tf_model.prediction, tf_shapes]):
