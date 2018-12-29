@@ -123,24 +123,24 @@ class MDMModel:
         with tf.variable_scope('Network', values=[self.in_mean_shape]):
             with tf.variable_scope('Initial'):
                 inputs = _conv2d(
-                    self.in_images, 256, [3, 3],
+                    self.in_images, 128, [3, 3],
                     activation=tf.nn.relu, use_bias=False, use_bn=True, training=self.is_training, name='Convolution'
                 )
                 inputs = tf.layers.max_pooling2d(inputs, [2, 2], [2, 2], name='MaxPooling')
             inputs = _shuffle_block(
-                inputs, 256, 488, [3, 3], [2, 2], 4,
+                inputs, 128, 232, [3, 3], [2, 2], 4,
                 training=self.is_training, name='ShuffleBlock1'
             )
             inputs = _shuffle_block(
-                inputs, 488, 976, [3, 3], [2, 2], 8,
+                inputs, 232, 464, [3, 3], [2, 2], 8,
                 training=self.is_training, name='ShuffleBlock2'
             )
             inputs = _shuffle_block(
-                inputs, 976, 1952, [3, 3], [2, 2], 4,
+                inputs, 464, 928, [3, 3], [2, 2], 4,
                 training=self.is_training, name='ShuffleBlock3'
             )
             with tf.variable_scope('Finalize'):
-                inputs = _conv2d(inputs, 2048, [1, 1], activation=tf.nn.relu, name='Convolution')
+                inputs = _conv2d(inputs, 1024, [1, 1], activation=tf.nn.relu, name='Convolution')
                 inputs = tf.layers.dropout(inputs, 0.2, training=self.is_training, name='Dropout')
                 inputs = tf.layers.average_pooling2d(inputs, [7, 7], [1, 1], name='AvgPooling')
             with tf.variable_scope('Predict'):
