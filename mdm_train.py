@@ -1,23 +1,24 @@
-from functools import partial
 from datetime import datetime
-import data_provider
-import mdm_model
+import json
+import menpo
+import menpo.io as mio
+from menpo.shape.pointcloud import PointCloud
 import numpy as np
 import os
 from pathlib import Path
 import tensorflow as tf
 import time
 import utils
-import menpo
-import menpo.io as mio
-from menpo.shape.pointcloud import PointCloud
-import json
+
+import data_provider
+import mdm_model
 
 tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
 with open(tf.flags.FLAGS.c, 'r') as g_config:
     g_config = json.load(g_config)
 for k in g_config:
-    print(k, type(g_config[k]), g_config[k])
+    print('%s:' % k, g_config[k], type(g_config[k]))
+assert isinstance(g_config, dict)
 input('OK?(Y/N): ')
 TUNE = False
 
