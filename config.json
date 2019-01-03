@@ -4,6 +4,7 @@
     "train_dataset": "Dataset/FW2Shuffle/Images/*.png",
     "eval_dataset": "Dataset/FW2Shuffle/Images/*.png",
     "train_dir": "ckpt/shuffle_v2_huge",
+    "ckpt_dir": "",
     "eval_dir": "ckpt/eval",
     "train_device": "/gpu:0",
     "eval_device": "/cpu:0",
