@@ -10,9 +10,9 @@ from utils import *
 for _ in range(1000):
     num = int(random.random() * 100)
     if num == 73:
-        assert 31, 27 == norm_idx(num)
+        assert (31, 27) == norm_idx(num)
     elif num == 68:
-        assert 36, 45 == norm_idx(num)
+        assert (36, 45) == norm_idx(num)
     else:
         try:
             _, _ = norm_idx(num)
