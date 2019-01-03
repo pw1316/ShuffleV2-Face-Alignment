@@ -1,17 +1,13 @@
-import tensorflow as tf
-import mdm_model
-from pathlib import Path
 import menpo.io as mio
 import numpy as np
-import data_provider
-import json
+from pathlib import Path
+import tensorflow as tf
 
-tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
-with open(tf.flags.FLAGS.c, 'r') as g_config:
-    g_config = json.load(g_config)
-for k in g_config:
-    print(k, type(g_config[k]), g_config[k])
-input('OK?(Y/N): ')
+import data_provider
+import mdm_model
+import utils
+
+g_config = utils.load_config()
 
 
 def ckpt_pb(pb_path):
@@ -38,7 +34,6 @@ def ckpt_pb(pb_path):
             num_channels=3,
             is_training=False
         )
-        output = model.prediction
 
         saver = tf.train.Saver()
         ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])

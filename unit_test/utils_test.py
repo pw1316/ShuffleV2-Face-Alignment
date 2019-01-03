@@ -81,3 +81,10 @@ plot_images = [
 plot_images = np.concatenate((plot_images[0], plot_images[1], plot_images[2]), 0)
 plt.imshow(plot_images)
 plt.show()
+
+
+# =====Config test=====
+config = load_config()
+print(type(config))
+config = load_config()
+print(type(config))

@@ -1,6 +1,8 @@
-import numpy as np
-from menpo.shape import PointCloud
 import cv2
+import json
+from menpo.shape import PointCloud
+import numpy as np
+import tensorflow as tf
 
 # ===== 68 =====
 _jaw_indices = np.arange(0, 17)
@@ -133,3 +135,16 @@ def batch_draw_landmarks_discrete(images, ground_truths, predictions):
     return np.array(
         [draw_landmarks_discrete(img, gt, pr) for img, gt, pr in zip(images, ground_truths, predictions)]
     )
+
+
+# =====Config=====
+def load_config():
+    if 'c' not in tf.flags.FLAGS:
+        tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
+    with open(tf.flags.FLAGS.c, 'r') as g_config:
+        g_config = json.load(g_config)
+    for k in g_config:
+        print('%s:' % k, g_config[k], type(g_config[k]))
+    assert isinstance(g_config, dict)
+    res = input('OK?(Y/N): ')
+    return g_config if res == 'y' or res == 'Y' else None
