@@ -1,10 +1,6 @@
 import tensorflow as tf
 import utils
 
-# extract_patches_module = tf.load_op_library('extract_patches_op/extract_patches.so')
-# extract_patches = extract_patches_module.extract_patches
-# tf.NotDifferentiable('ExtractPatches')
-
 
 def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
     def norm(x):
@@ -202,43 +198,6 @@ class MDMModel:
                 'Original/Stage1/Stage{}/unit_{}/second_branch'.format(sid + 1, uid + 1),
                 'Network/ShuffleBlock{}/Unit{}/Bypass'.format(sid, uid)
             )
-
-    def visualize_cnn(self, step, inputs, name):
-        """
-        Visualize Feature Map
-        Args:
-            step(int): RNN step
-            inputs: Tensor with shape [n * num_landmarks, h, w, c]
-            name(str): Image name
-        Returns:
-            None
-        """
-        tf.summary.image(
-            'feature_step{}_{}'.format(step, name),
-            tf.reshape(
-                tf.transpose(inputs[:10 * self.num_patches], perm=[0, 1, 3, 2]),
-                (min(10, self.batch_size), self.num_patches * inputs.shape[1], inputs.shape[2] * inputs.shape[3], 1)
-            ),
-            max_outputs=min(10, self.batch_size)
-        )
-
-    def visualize_cnn_mean(self, step, inputs, name):
-        """
-        Visualize Mean Feature Map
-        Args:
-            step(int): RNN step
-            inputs: Tensor with shape [n * num_landmarks, h, w, c]
-            name(str): Image name
-        Returns:
-            None
-        """
-        with tf.name_scope('visualize_{}'.format(name), values=[inputs]):
-            inputs = tf.reduce_mean(inputs, 3)
-            inputs = tf.reshape(inputs, (self.batch_size, self.num_patches, inputs.shape[1], inputs.shape[2]))
-            inputs = inputs[:10]
-            inputs = tf.transpose(inputs, (0, 2, 1, 3))
-            inputs = tf.reshape(inputs, (1, inputs.shape[0] * inputs.shape[1], -1, 1))
-        tf.summary.image('cnn_mean_feature/step{}/{}'.format(step, name), inputs)
 
     def normalized_rmse(self, pred, gt_truth):
         l, r = utils.norm_idx(self.num_patches)
