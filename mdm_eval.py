@@ -5,30 +5,19 @@ from __future__ import division
 from __future__ import print_function
 
 from datetime import datetime
-from pathlib import Path
-
-import data_provider
-import menpo
-import matplotlib
 import matplotlib.pyplot as plt
-import mdm_model
-import numpy as np
-import tensorflow as tf
-import time
-import utils
 import menpo.io as mio
 from menpo.shape.pointcloud import PointCloud
-import json
+import numpy as np
+from pathlib import Path
+import tensorflow as tf
+import time
 
-# Do not use a gui toolkit for matlotlib.
-matplotlib.use('Agg')
+import data_provider
+import mdm_model
+import utils
 
-tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
-with open(tf.flags.FLAGS.c, 'r') as g_config:
-    g_config = json.load(g_config)
-for k in g_config:
-    print(k, type(g_config[k]), g_config[k])
-input('OK?(Y/N): ')
+g_config = utils.load_config()
 
 
 def plot_ced(errors, method_names=['MDM']):
@@ -53,7 +42,7 @@ def flip_predictions(predictions, shapes):
     flipped_preds = []
     
     for pred, shape in zip(predictions, shapes):
-        pred = menpo.shape.PointCloud(pred)
+        pred = PointCloud(pred)
         if pred.points.shape[0] == 68:
             pred = utils.mirror_landmarks_68(pred, shape)
         elif pred.points.shape[0] == 73:

@@ -1,24 +1,18 @@
-from functools import partial
 from datetime import datetime
-import data_provider
-import mdm_model
+import menpo
+import menpo.io as mio
+from menpo.shape.pointcloud import PointCloud
 import numpy as np
 import os
 from pathlib import Path
 import tensorflow as tf
 import time
-import utils
-import menpo
-import menpo.io as mio
-from menpo.shape.pointcloud import PointCloud
-import json
 
-tf.flags.DEFINE_string('c', 'config.json', """Model config file""")
-with open(tf.flags.FLAGS.c, 'r') as g_config:
-    g_config = json.load(g_config)
-for k in g_config:
-    print(k, type(g_config[k]), g_config[k])
-input('OK?(Y/N): ')
+import data_provider
+import mdm_model
+import utils
+
+g_config = utils.load_config()
 TUNE = False
 
 
@@ -185,27 +179,32 @@ def train(scope=''):
         sess.run(init)
         print('Initialized variables.')
 
+        # Assuming model_checkpoint_path looks something like:
+        #   /ckpt/train/model.ckpt-0,
+        # extract global_step from it.
         start_step = 0
-        ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
+        ckpt = tf.train.get_checkpoint_state(g_config['ckpt_dir'])
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(sess, ckpt.model_checkpoint_path)
-            # Assuming model_checkpoint_path looks something like:
-            #   /ckpt/train/model.ckpt-0,
-            # extract global_step from it.
-            start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]) + 1
-            print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['train_dir']))
-        elif TUNE:
-            assign_op = []
-            vvv = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-            cnt = 0
-            for v in vvv:
-                if v.name in tf_model.var_map:
-                    assign_op.append(v.assign(graph.get_tensor_by_name(tf_model.var_map[v.name])))
-                    cnt += 1
-                else:
-                    print(v.name)
-            sess.run(assign_op)
-            print('%s: Pre-trained model restored from graph.pb %d/%d' % (datetime.now(), cnt, len(vvv)))
+            print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['ckpt_dir']))
+        else:
+            ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
+            if ckpt and ckpt.model_checkpoint_path:
+                saver.restore(sess, ckpt.model_checkpoint_path)
+                start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]) + 1
+                print('%s: Restart from %s' % (datetime.now(), g_config['train_dir']))
+            elif TUNE:
+                assign_op = []
+                vvv = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+                cnt = 0
+                for v in vvv:
+                    if v.name in tf_model.var_map:
+                        assign_op.append(v.assign(graph.get_tensor_by_name(tf_model.var_map[v.name])))
+                        cnt += 1
+                    else:
+                        print(v.name)
+                sess.run(assign_op)
+                print('%s: Tune from graph.pb %d/%d' % (datetime.now(), cnt, len(vvv)))
 
         summary_writer = tf.summary.FileWriter(g_config['train_dir'], sess.graph)
 
