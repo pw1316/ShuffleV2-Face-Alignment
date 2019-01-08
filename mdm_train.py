@@ -98,7 +98,7 @@ def train(scope=''):
             _O_MIN_H = 0.3
             _O_MAX_H = 0.5
             if np.random.rand() < .3:
-                rh = int(np.random.rand() * (_O_MAX_H - _O_MIN_H) + _O_MIN_H * 112)
+                rh = int((np.random.rand() * (_O_MAX_H - _O_MIN_H) + _O_MIN_H) * 112)
                 rw = int(12544 * _O_AREA / rh)
                 dy = int(np.random.rand() * (112 - rh))
                 dx = int(np.random.rand() * (112 - rw))
