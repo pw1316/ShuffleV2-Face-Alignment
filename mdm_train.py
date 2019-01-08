@@ -90,9 +90,19 @@ def train(scope=''):
             proportion = 1.0 / 6.0 + float(np.random.rand() - 0.5) / 10.0
             image = image.crop_to_landmarks_proportion(proportion, group='bb')
             image = image.resize((112, 112))
-
             random_image = image.pixels.transpose(1, 2, 0).astype('float32')
             random_shape = image.landmarks['PTS'].points.astype('float32')
+
+            # Occlude
+            _O_AREA = 0.15
+            _O_MAX_H = 0.5
+            if np.random.rand() < .3:
+                rh = int(np.random.rand() * _O_MAX_H * 112)
+                rw = int(12544 * _O_AREA / rh)
+                dy = int(np.random.rand() * (112 - rh))
+                dx = int(np.random.rand() * (112 - rw))
+                random_image[dy:dy+rh, dx:dx+rw] = np.random.rand(rh, rw)
+
             return random_image, random_shape
 
         def distort_color(image, shape):
