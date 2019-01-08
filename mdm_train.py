@@ -101,7 +101,7 @@ def train(scope=''):
                 rw = int(12544 * _O_AREA / rh)
                 dy = int(np.random.rand() * (112 - rh))
                 dx = int(np.random.rand() * (112 - rw))
-                random_image[dy:dy+rh, dx:dx+rw] = np.random.rand(rh, rw)
+                random_image[dy:dy+rh, dx:dx+rw] = np.random.rand(rh, rw, 3)
 
             return random_image, random_shape
 
