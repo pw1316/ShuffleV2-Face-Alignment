@@ -197,7 +197,7 @@ def train(scope=''):
         ckpt = tf.train.get_checkpoint_state(g_config['ckpt_dir'])
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(sess, ckpt.model_checkpoint_path)
-            tf_global_step_op = tf_global_step.assign(7000)
+            tf_global_step_op = tf_global_step.assign(0)
             sess.run(tf_global_step_op)
             print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['ckpt_dir']))
         else:
