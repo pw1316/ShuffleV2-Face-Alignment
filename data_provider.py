@@ -1,7 +1,5 @@
 from menpo.shape.pointcloud import PointCloud
 from menpofit.builder import compute_reference_shape
-from menpofit.fitter import (noisy_shape_from_bounding_box,
-                             align_shape_with_bounding_box)
 from pathlib import Path
 
 import menpo.feature
@@ -9,9 +7,7 @@ import menpo.image
 import menpo.io as mio
 import numpy as np
 import tensorflow as tf
-import detect
 import random
-import matplotlib.pyplot as plt
 
 
 def build_reference_shape(paths, num_patches=73, diagonal=200):
@@ -81,57 +77,6 @@ def align_reference_shape_to_112(reference_shape):
     ratio = norm(bb) / norm(reference_shape_bb)
     reference_shape = (reference_shape - np.mean(reference_shape_bb, 0)) * ratio + np.mean(bb, 0)
     return reference_shape
-
-
-def random_shape(tf_shape, tf_mean_shape, pca_model):
-    """Generates a new shape estimate given the ground truth shape.
-
-    Args:
-      tf_shape: a numpy array [num_landmarks, 2]
-      tf_mean_shape: a Tensor of dimensions [num_landmarks, 2]
-      pca_model: A PCAModel that generates shapes.
-    Returns:
-      The aligned shape, as a Tensor [num_landmarks, 2].
-    """
-
-    def synthesize(lms):
-        return detect.synthesize_detection(pca_model, menpo.shape.PointCloud(
-            lms).bounding_box()).points.astype(np.float32)
-
-    with tf.name_scope('random_initial_shape', values=[tf_shape, tf_mean_shape]):
-        tf_random_bb, = tf.py_func(
-            synthesize, [tf_shape], [tf.float32],
-            stateful=True,
-            name='random_bb'
-        )  # Random bb for shape
-        tf_random_shape = align_reference_shape(tf_mean_shape, tf_random_bb)  # align mean shape to bb
-        tf_random_shape.set_shape(tf_mean_shape.get_shape())
-    return tf_random_shape
-
-
-def get_noisy_init_from_bb(reference_shape, bb, noise_percentage=.02):
-    """Roughly aligns a reference shape to a bounding box.
-
-    This adds some uniform noise for translation and scale to the
-    aligned shape.
-
-    Args:
-      reference_shape: a numpy array [num_landmarks, 2]
-      bb: bounding box, a numpy array [4, ]
-      noise_percentage: noise presentation to add.
-    Returns:
-      The aligned shape, as a numpy array [num_landmarks, 2]
-    """
-    bb = PointCloud(bb)
-    reference_shape = PointCloud(reference_shape)
-
-    bb = noisy_shape_from_bounding_box(
-        reference_shape,
-        bb,
-        noise_percentage=[noise_percentage, 0, noise_percentage]).bounding_box(
-        )
-
-    return align_shape_with_bounding_box(reference_shape, bb).points
 
 
 def load_image(path, proportion, size):

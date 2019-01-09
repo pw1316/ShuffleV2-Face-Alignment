@@ -25,7 +25,7 @@ def ckpt_pb(pb_path):
         tf_dummy = tf.placeholder(dtype=tf.float32, shape=(1, 73, 2), name='inputs/input_shape')
         tf_shape = tf.constant(_mean_shape, dtype=tf.float32, shape=(73, 2), name='MeanShape')
 
-        model = mdm_model.MDMModel(
+        mdm_model.MDMModel(
             tf_img,
             tf_dummy,
             tf_shape,
