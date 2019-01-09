@@ -183,18 +183,18 @@ def train(scope=''):
         #   /ckpt/train/model.ckpt-0,
         # extract global_step from it.
         start_step = 0
-        ckpt = tf.train.get_checkpoint_state(g_config['ckpt_dir'])
+        ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(sess, ckpt.model_checkpoint_path)
-            tf_global_step_op = tf_global_step.assign(7000)
-            sess.run(tf_global_step_op)
-            print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['ckpt_dir']))
+            start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]) + 1
+            print('%s: Restart from %s' % (datetime.now(), g_config['train_dir']))
         else:
-            ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
+            ckpt = tf.train.get_checkpoint_state(g_config['ckpt_dir'])
             if ckpt and ckpt.model_checkpoint_path:
                 saver.restore(sess, ckpt.model_checkpoint_path)
-                start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]) + 1
-                print('%s: Restart from %s' % (datetime.now(), g_config['train_dir']))
+                tf_global_step_op = tf_global_step.assign(7000)
+                sess.run(tf_global_step_op)
+                print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['ckpt_dir']))
             elif TUNE:
                 assign_op = []
                 vvv = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
