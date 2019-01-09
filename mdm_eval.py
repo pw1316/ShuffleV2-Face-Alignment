@@ -20,7 +20,7 @@ import utils
 g_config = utils.load_config()
 
 
-def plot_ced(errors, method_names=['MDM']):
+def plot_ced(errors, method_names):
     from menpofit.visualize import plot_cumulative_error_distribution
     # plot the ced and store it at the root.
     fig = plt.figure()
@@ -169,14 +169,14 @@ def evaluate():
                 ofs.write('\n')
             auc_at_08 = (mean_errors < .08).mean()
             auc_at_05 = (mean_errors < .05).mean()
-            ced_image = plot_ced([mean_errors.tolist()])
-            ced_plot = sess.run(tf.summary.merge([tf.summary.image('ced_plot', ced_image[None, ...])]))
-
             print('Errors', mean_errors.shape)
             print(
                 '%s: mean_rmse = %.4f, auc @ 0.05 = %.4f, auc @ 0.08 = %.4f [%d examples]' %
                 (datetime.now(), mean_errors.mean(), auc_at_05, auc_at_08, num_iter)
             )
+
+            ced_image = plot_ced([mean_errors.tolist()], ['MDM'])
+            ced_plot = sess.run(tf.summary.merge([tf.summary.image('ced_plot', ced_image[None, ...])]))
             summary_writer.add_summary(ced_plot, global_step)
 
 
