@@ -122,7 +122,7 @@ def train(scope=''):
             )
             tf_dataset = tf_dataset.map(distort_color)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
-            tf_dataset = tf_dataset.prefetch(7500)
+            tf_dataset = tf_dataset.prefetch(10)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes = tf_iterator.get_next(name='Batch')
             tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
@@ -194,18 +194,18 @@ def train(scope=''):
         #   /ckpt/train/model.ckpt-0,
         # extract global_step from it.
         start_step = 0
-        ckpt = tf.train.get_checkpoint_state(g_config['ckpt_dir'])
+        ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(sess, ckpt.model_checkpoint_path)
-            tf_global_step_op = tf_global_step.assign(0)
-            sess.run(tf_global_step_op)
-            print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['ckpt_dir']))
+            start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]) + 1
+            print('%s: Restart from %s' % (datetime.now(), g_config['train_dir']))
         else:
-            ckpt = tf.train.get_checkpoint_state(g_config['train_dir'])
+            ckpt = tf.train.get_checkpoint_state(g_config['ckpt_dir'])
             if ckpt and ckpt.model_checkpoint_path:
                 saver.restore(sess, ckpt.model_checkpoint_path)
-                start_step = int(ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]) + 1
-                print('%s: Restart from %s' % (datetime.now(), g_config['train_dir']))
+                tf_global_step_op = tf_global_step.assign(0)
+                sess.run(tf_global_step_op)
+                print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['ckpt_dir']))
             elif TUNE:
                 assign_op = []
                 vvv = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
