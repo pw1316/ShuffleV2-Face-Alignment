@@ -2,6 +2,85 @@ import tensorflow as tf
 import utils
 
 
+class _DepthwiseConv2D(tf.keras.layers.DepthwiseConv2D, tf.layers.Layer):
+    def __init__(self,
+                 kernel_size,
+                 strides=(1, 1),
+                 padding='valid',
+                 depth_multiplier=1,
+                 data_format='channels_last',
+                 activation=None,
+                 use_bias=True,
+                 depthwise_initializer=None,
+                 bias_initializer=tf.zeros_initializer(),
+                 depthwise_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 depthwise_constraint=None,
+                 bias_constraint=None,
+                 trainable=True,
+                 name=None,
+                 **kwargs):
+        super(_DepthwiseConv2D, self).__init__(
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            depth_multiplier=depth_multiplier,
+            data_format=data_format,
+            activation=activation,
+            use_bias=use_bias,
+            depthwise_initializer=depthwise_initializer,
+            bias_initializer=bias_initializer,
+            depthwise_regularizer=depthwise_regularizer,
+            bias_regularizer=bias_regularizer,
+            activity_regularizer=activity_regularizer,
+            depthwise_constraint=depthwise_constraint,
+            bias_constraint=bias_constraint,
+            trainable=trainable,
+            name=name,
+            **kwargs)
+
+
+def _depthwise_conv2d(inputs,
+                      kernel_size,
+                      strides=(1, 1),
+                      padding='valid',
+                      depth_multiplier=1,
+                      data_format='channels_last',
+                      activation=None,
+                      use_bias=True,
+                      depthwise_initializer=None,
+                      bias_initializer=tf.zeros_initializer(),
+                      depthwise_regularizer=None,
+                      bias_regularizer=None,
+                      activity_regularizer=None,
+                      depthwise_constraint=None,
+                      bias_constraint=None,
+                      trainable=True,
+                      name=None,
+                      reuse=None):
+    layer = _DepthwiseConv2D(
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=padding,
+        depth_multiplier=depth_multiplier,
+        data_format=data_format,
+        activation=activation,
+        use_bias=use_bias,
+        depthwise_initializer=depthwise_initializer,
+        bias_initializer=bias_initializer,
+        depthwise_regularizer=depthwise_regularizer,
+        bias_regularizer=bias_regularizer,
+        activity_regularizer=activity_regularizer,
+        depthwise_constraint=depthwise_constraint,
+        bias_constraint=bias_constraint,
+        trainable=trainable,
+        name=name,
+        _reuse=reuse,
+        _scope=name)
+    return layer.apply(inputs)
+
+
 def _conv2d(
         inputs,
         filters,
@@ -43,13 +122,12 @@ def _conv2d_dw(
         name='DepthWiseConvolution'
 ):
     with tf.variable_scope(name, values=[inputs]):
-        layer = tf.keras.layers.DepthwiseConv2D(
-            kernel_size, strides,
+        inputs = _depthwise_conv2d(
+            inputs, kernel_size, strides,
             padding='same',
             use_bias=use_bias,
             name='DWConv2D'
         )
-        inputs = layer.apply(inputs)
         if use_bn:
             inputs = tf.layers.batch_normalization(
                 inputs,
