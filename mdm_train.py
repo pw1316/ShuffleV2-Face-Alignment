@@ -122,7 +122,7 @@ def train(scope=''):
             )
             tf_dataset = tf_dataset.map(distort_color)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
-            tf_dataset = tf_dataset.prefetch(10)
+            tf_dataset = tf_dataset.prefetch(1000)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes = tf_iterator.get_next(name='Batch')
             tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
