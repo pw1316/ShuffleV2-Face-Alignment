@@ -9,9 +9,9 @@
     "train_device": "/gpu:0",
     "eval_device": "/cpu:0",
     "learning_rate": 0.001,
-    "learning_rate_step": 7000,
-    "learning_rate_decay": 0.6,
-    "batch_size": 30,
+    "learning_rate_step": 3000,
+    "learning_rate_decay": 0.97,
+    "batch_size": 5,
     "max_steps": 200000,
     "num_examples": 4135,
     "use_mirror": false
