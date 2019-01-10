@@ -122,16 +122,16 @@ def train(scope=''):
                 num_channels=3
             )
             tf_grads = opt.compute_gradients(tf_model.nme)
-        with tf.device('/cpu:0'), tf.name_scope('Validate'):
-            tf_model_v = mdm_model.MDMModel(
-                tf_images,
-                tf_shapes,
-                tf_mean_shape,
-                batch_size=g_config['batch_size'],
-                num_patches=g_config['num_patches'],
-                num_channels=3,
-                is_training=False
-            )
+            with tf.name_scope('Validate'):
+                tf_model_v = mdm_model.MDMModel(
+                    tf_images,
+                    tf_shapes,
+                    tf_mean_shape,
+                    batch_size=g_config['batch_size'],
+                    num_patches=g_config['num_patches'],
+                    num_channels=3,
+                    is_training=False
+                )
         tf.summary.histogram('dx', tf_model.prediction - tf_shapes, collections=['train'])
 
         bn_updates = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope)
@@ -220,11 +220,12 @@ def train(scope=''):
                 start_time = time.time()
                 _, train_loss = sess.run([train_op, tf_model.nme])
                 duration = time.time() - start_time
-                print(
-                    '%s: step %d, loss = %.4f (%.3f sec/batch)' % (
-                        datetime.now(), step, train_loss, duration
+                if step % 100 == 0:
+                    print(
+                        '%s: step %d, loss = %.4f (%.3f sec/batch)' % (
+                            datetime.now(), step, train_loss, duration
+                        )
                     )
-                )
 
             assert not np.isnan(train_loss), 'Model diverged with loss = NaN'
 
