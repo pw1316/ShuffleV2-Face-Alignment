@@ -52,18 +52,6 @@ def train(scope=''):
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
-        def decode_feature(serialized):
-            feature = {
-                'train/image': tf.FixedLenFeature([], tf.string),
-                'train/shape': tf.VarLenFeature(tf.float32),
-            }
-            features = tf.parse_single_example(serialized, features=feature)
-            decoded_image = tf.decode_raw(features['train/image'], tf.float32)
-            decoded_image = tf.reshape(decoded_image, (336, 336, 3))
-            decoded_shape = tf.sparse.to_dense(features['train/shape'])
-            decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
-            return decoded_image, decoded_shape
-
         def get_random_sample(image, shape, rotation_stddev=10):
             # Read a random image with landmarks and bb
             image = menpo.image.Image(image.transpose((2, 0, 1)), copy=False)
@@ -95,23 +83,30 @@ def train(scope=''):
             random_shape = image.landmarks['PTS'].points.astype('float32')
             return random_image, random_shape
 
-        def distort_color(image, shape):
-            return data_provider.distort_color(image), shape
+        def decode_feature_and_augment(serialized):
+            feature = {
+                'train/image': tf.FixedLenFeature([], tf.string),
+                'train/shape': tf.VarLenFeature(tf.float32),
+            }
+            features = tf.parse_single_example(serialized, features=feature)
+            decoded_image = tf.decode_raw(features['train/image'], tf.float32)
+            decoded_image = tf.reshape(decoded_image, (336, 336, 3))
+            decoded_shape = tf.sparse.to_dense(features['train/shape'])
+            decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
+
+            random_image, random_shape = tf.py_func(
+                get_random_sample, [decoded_image, decoded_shape], [tf.float32, tf.float32],
+                stateful=True,
+                name='RandomSample'
+            )
+            return data_provider.distort_color(random_image), random_shape
 
         with tf.name_scope('DataProvider'):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'train.bin')])
             tf_dataset = tf_dataset.repeat()
-            tf_dataset = tf_dataset.map(decode_feature)
-            tf_dataset = tf_dataset.map(
-                lambda x, y: tf.py_func(
-                    get_random_sample, [x, y], [tf.float32, tf.float32],
-                    stateful=True,
-                    name='RandomSample'
-                )
-            )
-            tf_dataset = tf_dataset.map(distort_color)
+            tf_dataset = tf_dataset.map(decode_feature_and_augment, num_parallel_calls=5)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
-            tf_dataset = tf_dataset.prefetch(1000)
+            tf_dataset = tf_dataset.prefetch(1)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes = tf_iterator.get_next(name='Batch')
             tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
