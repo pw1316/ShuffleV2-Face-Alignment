@@ -266,6 +266,7 @@ def prepare_images(paths, num_patches=73, verbose=True):
     if Path(path_base / 'validate.bin').exists():
         pass
     else:
+        random.shuffle(val_paths)
         with tf.io.TFRecordWriter(str(path_base / 'validate.bin')) as ofs:
             print('Preparing validate data...')
             counter = 0
