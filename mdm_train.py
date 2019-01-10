@@ -100,6 +100,18 @@ def train(scope=''):
             )
             return data_provider.distort_color(random_image), random_shape
 
+        def decode_feature(serialized):
+            feature = {
+                'validate/image': tf.FixedLenFeature([], tf.string),
+                'validate/shape': tf.VarLenFeature(tf.float32),
+            }
+            features = tf.parse_single_example(serialized, features=feature)
+            decoded_image = tf.decode_raw(features['validate/image'], tf.float32)
+            decoded_image = tf.reshape(decoded_image, (112, 112, 3))
+            decoded_shape = tf.sparse.to_dense(features['validate/shape'])
+            decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
+            return decoded_image, decoded_shape
+
         with tf.name_scope('DataProvider'):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'train.bin')])
             tf_dataset = tf_dataset.repeat()
@@ -110,6 +122,16 @@ def train(scope=''):
             tf_images, tf_shapes = tf_iterator.get_next(name='Batch')
             tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
             tf_shapes.set_shape([g_config['batch_size'], 73, 2])
+
+            tf_dataset_v = tf.data.TFRecordDataset([str(path_base / 'validate.bin')])
+            tf_dataset_v = tf_dataset_v.repeat()
+            tf_dataset_v = tf_dataset_v.map(decode_feature, num_parallel_calls=5)
+            tf_dataset_v = tf_dataset_v.batch(50, True)
+            tf_dataset_v = tf_dataset_v.prefetch(1)
+            tf_iterator_v = tf_dataset_v.make_one_shot_iterator()
+            tf_images_v, tf_shapes_v = tf_iterator_v.get_next(name='ValidateBatch')
+            tf_images_v.set_shape([50, 112, 112, 3])
+            tf_shapes_v.set_shape([50, 73, 2])
 
         print('Defining model...')
         with tf.device(g_config['train_device']):
@@ -124,10 +146,10 @@ def train(scope=''):
             tf_grads = opt.compute_gradients(tf_model.nme)
             with tf.name_scope('Validate'):
                 tf_model_v = mdm_model.MDMModel(
-                    tf_images,
-                    tf_shapes,
+                    tf_images_v,
+                    tf_shapes_v,
                     tf_mean_shape,
-                    batch_size=g_config['batch_size'],
+                    batch_size=50,
                     num_patches=g_config['num_patches'],
                     num_channels=3,
                     is_training=False

@@ -262,6 +262,44 @@ def prepare_images(paths, num_patches=73, verbose=True):
             if verbose:
                 print('')
 
+    # Seven: validate data
+    if Path(path_base / 'validate.bin').exists():
+        pass
+    else:
+        with tf.io.TFRecordWriter(str(path_base / 'validate.bin')) as ofs:
+            print('Preparing validate data...')
+            counter = 0
+            for path in val_paths:
+                counter += 1
+                if verbose:
+                    status = 10.0 * counter / len(val_paths)
+                    status_str = '\rPreparing {:2.2f}%['.format(status * 10)
+                    for i in range(int(status)):
+                        status_str += '='
+                    for i in range(int(status), 10):
+                        status_str += ' '
+                    status_str += '] {}     '.format(path)
+                    print(status_str, end='')
+
+                mp_image = load_image(path, 1. / 6., 112)
+
+                image = mp_image.pixels.transpose(1, 2, 0).astype(np.float32)
+                shape = mp_image.landmarks['PTS'].points
+                features = tf.train.Features(
+                    feature={
+                        'validate/image': tf.train.Feature(
+                            bytes_list=tf.train.BytesList(
+                                value=[tf.compat.as_bytes(image.tostring())])
+                        ),
+                        'validate/shape': tf.train.Feature(
+                            float_list=tf.train.FloatList(value=shape.flatten())
+                        )
+                    }
+                )
+                ofs.write(tf.train.Example(features=features).SerializeToString())
+            if verbose:
+                print('')
+
 
 def distort_color(image, thread_id=0, stddev=0.1):
     """Distort the color of the image.

@@ -12,7 +12,7 @@
     "learning_rate_step": 3000,
     "learning_rate_decay": 0.97,
     "batch_size": 5,
-    "max_steps": 200000,
+    "max_steps": 1200000,
     "num_examples": 4135,
     "use_mirror": false
 }
