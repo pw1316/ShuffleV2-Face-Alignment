@@ -193,7 +193,7 @@ def train(scope=''):
                 print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['ckpt_dir']))
 
         train_writer = tf.summary.FileWriter(g_config['train_dir'] + '/train', sess.graph)
-        validate_writer = tf.summary.FileWriter(g_config['train_dir'] + 'validate', sess.graph)
+        validate_writer = tf.summary.FileWriter(g_config['train_dir'] + '/validate', sess.graph)
 
         print('Starting training...')
         steps_per_epoch = 15000 / g_config['batch_size']

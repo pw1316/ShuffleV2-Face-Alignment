@@ -137,7 +137,7 @@ def _shuffle_block(
 def _batch_normalized_error(pred, gt_truth, num_patches=73):
     l, r = utils.norm_idx(num_patches)
     assert (l is not None and r is not None)
-    norm = tf.sqrt(tf.reduce_sum((tf.square(gt_truth[:, l, :] - gt_truth[:, r, :])), 1))
+    norm = tf.sqrt(tf.reduce_sum((tf.square(gt_truth[:, l, :] - gt_truth[:, r, :])), 1, keepdims=True))
     return tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)) / norm
 
 
