@@ -13,7 +13,6 @@ import mdm_model
 import utils
 
 g_config = utils.load_config()
-TUNE = False
 
 
 def train(scope=''):
@@ -35,7 +34,7 @@ def train(scope=''):
             staircase=True,
             name='LearningRate'
         )
-        tf.summary.scalar('learning_rate', tf_lr)
+        tf.summary.scalar('learning_rate', tf_lr, collections=['train'])
 
         # Create an optimizer that performs gradient descent.
         opt = tf.train.AdamOptimizer(tf_lr)
@@ -51,18 +50,6 @@ def train(scope=''):
         assert(_mean_shape.shape[0] == g_config['num_patches'])
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
-
-        def decode_feature(serialized):
-            feature = {
-                'train/image': tf.FixedLenFeature([], tf.string),
-                'train/shape': tf.VarLenFeature(tf.float32),
-            }
-            features = tf.parse_single_example(serialized, features=feature)
-            decoded_image = tf.decode_raw(features['train/image'], tf.float32)
-            decoded_image = tf.reshape(decoded_image, (336, 336, 3))
-            decoded_shape = tf.sparse.to_dense(features['train/shape'])
-            decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
-            return decoded_image, decoded_shape
 
         def get_random_sample(image, shape, rotation_stddev=10):
             # Read a random image with landmarks and bb
@@ -106,27 +93,56 @@ def train(scope=''):
 
             return random_image, random_shape
 
-        def distort_color(image, shape):
-            return data_provider.distort_color(image), shape
+        def decode_feature_and_augment(serialized):
+            feature = {
+                'train/image': tf.FixedLenFeature([], tf.string),
+                'train/shape': tf.VarLenFeature(tf.float32),
+            }
+            features = tf.parse_single_example(serialized, features=feature)
+            decoded_image = tf.decode_raw(features['train/image'], tf.float32)
+            decoded_image = tf.reshape(decoded_image, (336, 336, 3))
+            decoded_shape = tf.sparse.to_dense(features['train/shape'])
+            decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
+
+            random_image, random_shape = tf.py_func(
+                get_random_sample, [decoded_image, decoded_shape], [tf.float32, tf.float32],
+                stateful=True,
+                name='RandomSample'
+            )
+            return data_provider.distort_color(random_image), random_shape
+
+        def decode_feature(serialized):
+            feature = {
+                'validate/image': tf.FixedLenFeature([], tf.string),
+                'validate/shape': tf.VarLenFeature(tf.float32),
+            }
+            features = tf.parse_single_example(serialized, features=feature)
+            decoded_image = tf.decode_raw(features['validate/image'], tf.float32)
+            decoded_image = tf.reshape(decoded_image, (112, 112, 3))
+            decoded_shape = tf.sparse.to_dense(features['validate/shape'])
+            decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
+            return decoded_image, decoded_shape
 
         with tf.name_scope('DataProvider'):
             tf_dataset = tf.data.TFRecordDataset([str(path_base / 'train.bin')])
             tf_dataset = tf_dataset.repeat()
-            tf_dataset = tf_dataset.map(decode_feature)
-            tf_dataset = tf_dataset.map(
-                lambda x, y: tf.py_func(
-                    get_random_sample, [x, y], [tf.float32, tf.float32],
-                    stateful=True,
-                    name='RandomSample'
-                )
-            )
-            tf_dataset = tf_dataset.map(distort_color)
+            tf_dataset = tf_dataset.map(decode_feature_and_augment, num_parallel_calls=5)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
-            tf_dataset = tf_dataset.prefetch(1000)
+            tf_dataset = tf_dataset.prefetch(1)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes = tf_iterator.get_next(name='Batch')
             tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
             tf_shapes.set_shape([g_config['batch_size'], 73, 2])
+
+            tf_dataset_v = tf.data.TFRecordDataset([str(path_base / 'validate.bin')])
+            tf_dataset_v = tf_dataset_v.repeat()
+            tf_dataset_v = tf_dataset_v.map(decode_feature, num_parallel_calls=5)
+            tf_dataset_v = tf_dataset_v.batch(50, True)
+            tf_dataset_v = tf_dataset_v.prefetch(1)
+            tf_iterator_v = tf_dataset_v.make_one_shot_iterator()
+            tf_images_v, tf_shapes_v = tf_iterator_v.get_next(name='ValidateBatch')
+            tf_images_v.set_shape([50, 112, 112, 3])
+            tf_shapes_v.set_shape([50, 73, 2])
 
         print('Defining model...')
         with tf.device(g_config['train_device']):
@@ -138,20 +154,25 @@ def train(scope=''):
                 num_patches=g_config['num_patches'],
                 num_channels=3
             )
-            with tf.name_scope('Losses', values=[tf_model.prediction, tf_shapes]):
-                tf_norm_error = tf_model.normalized_rmse(tf_model.prediction, tf_shapes)
-                tf_loss = tf.reduce_mean(tf_norm_error)
-            tf.summary.scalar('losses/total', tf_loss)
-            # Calculate the gradients for the batch of data
-            tf_grads = opt.compute_gradients(tf_loss)
-        tf.summary.histogram('dx', tf_model.prediction - tf_shapes)
+            tf_grads = opt.compute_gradients(tf_model.nme)
+            with tf.name_scope('Validate'):
+                tf_model_v = mdm_model.MDMModel(
+                    tf_images_v,
+                    tf_shapes_v,
+                    tf_mean_shape,
+                    batch_size=50,
+                    num_patches=g_config['num_patches'],
+                    num_channels=3,
+                    is_training=False
+                )
+        tf.summary.histogram('dx', tf_model.prediction - tf_shapes, collections=['train'])
 
         bn_updates = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope)
 
         # Add histograms for gradients.
         for grad, var in tf_grads:
             if grad is not None:
-                tf.summary.histogram(var.op.name + '/gradients', grad)
+                tf.summary.histogram(var.op.name + '/gradients', grad, collections=['train'])
 
         # Apply the gradients to adjust the shared variables.
         with tf.name_scope('Optimizer', values=[tf_grads, tf_global_step]):
@@ -159,7 +180,7 @@ def train(scope=''):
 
         # Add histograms for trainable variables.
         for var in tf.trainable_variables():
-            tf.summary.histogram(var.op.name, var)
+            tf.summary.histogram(var.op.name, var, collections=['train'])
 
         with tf.name_scope('MovingAverage', values=[tf_global_step]):
             variable_averages = tf.train.ExponentialMovingAverage(g_config['MOVING_AVERAGE_DECAY'], tf_global_step)
@@ -176,15 +197,12 @@ def train(scope=''):
         # Create a saver.
         saver = tf.train.Saver()
 
-        # Build the summary operation from the last tower summaries.
-        summary_op = tf.summary.merge_all()
-        # Start running operations on the Graph. allow_soft_placement must be
-        # set to True to build towers on GPU, as some of the ops do not have GPU
-        # implementations.
+        train_summary_op = tf.summary.merge_all('train')
+        validate_summary_op = tf.summary.merge_all('validate')
+
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.allow_growth = True
-        sess = tf.Session(config=config)
-        # Build an initialization operation to run below.
+        sess = tf.Session(graph=graph, config=config)
         init = tf.global_variables_initializer()
         print('Initializing variables...')
         sess.run(init)
@@ -206,43 +224,45 @@ def train(scope=''):
                 tf_global_step_op = tf_global_step.assign(0)
                 sess.run(tf_global_step_op)
                 print('%s: Pre-trained model restored from %s' % (datetime.now(), g_config['ckpt_dir']))
-            elif TUNE:
-                assign_op = []
-                vvv = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-                cnt = 0
-                for v in vvv:
-                    if v.name in tf_model.var_map:
-                        assign_op.append(v.assign(graph.get_tensor_by_name(tf_model.var_map[v.name])))
-                        cnt += 1
-                    else:
-                        print(v.name)
-                sess.run(assign_op)
-                print('%s: Tune from graph.pb %d/%d' % (datetime.now(), cnt, len(vvv)))
 
-        summary_writer = tf.summary.FileWriter(g_config['train_dir'], sess.graph)
+        train_writer = tf.summary.FileWriter(g_config['train_dir'] + '/train', sess.graph)
+        validate_writer = tf.summary.FileWriter(g_config['train_dir'] + '/validate', sess.graph)
 
         print('Starting training...')
+        steps_per_epoch = 15000 / g_config['batch_size']
         for step in range(start_step, g_config['max_steps']):
-            start_time = time.time()
-            _, loss_value = sess.run([train_op, tf_loss])
-            duration = time.time() - start_time
+            if step % steps_per_epoch == 0:
+                start_time = time.time()
+                _, train_loss, train_summary = sess.run([train_op, tf_model.nme, train_summary_op])
+                duration = time.time() - start_time
+                validate_loss, validate_summary = sess.run([tf_model_v.nme, validate_summary_op])
+                train_writer.add_summary(train_summary, step)
+                validate_writer.add_summary(validate_summary, step)
 
-            assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
+                print(
+                    '%s: step %d, loss = %.4f (%.3f sec/batch)' % (
+                        datetime.now(), step, train_loss, duration
+                    )
+                )
+                print(
+                    '%s: step %d, validate loss = %.4f' % (
+                        datetime.now(), step, validate_loss
+                    )
+                )
+            else:
+                start_time = time.time()
+                _, train_loss = sess.run([train_op, tf_model.nme])
+                duration = time.time() - start_time
+                if step % 100 == 0:
+                    print(
+                        '%s: step %d, loss = %.4f (%.3f sec/batch)' % (
+                            datetime.now(), step, train_loss, duration
+                        )
+                    )
 
-            if step % 100 == 0:
-                examples_per_sec = g_config['batch_size'] / float(duration)
-                format_str = (
-                    '%s: step %d, loss = %.4f (%.1f examples/sec; %.3f '
-                    'sec/batch)')
-                print(format_str % (datetime.now(), step, loss_value,
-                                    examples_per_sec, duration))
+            assert not np.isnan(train_loss), 'Model diverged with loss = NaN'
 
-            if step % 200 == 0:
-                summary_str = sess.run(summary_op)
-                summary_writer.add_summary(summary_str, step)
-
-            # Save the model checkpoint periodically.
-            if step % 1000 == 0 or (step + 1) == g_config['max_steps']:
+            if step % steps_per_epoch == 0 or (step + 1) == g_config['max_steps']:
                 checkpoint_path = os.path.join(g_config['train_dir'], 'model.ckpt')
                 saver.save(sess, checkpoint_path, global_step=step)
 

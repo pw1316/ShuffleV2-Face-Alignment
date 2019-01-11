@@ -93,12 +93,6 @@ def evaluate():
                 num_channels=3,
                 is_training=False
             )
-        tf_predictions = model.prediction
-
-        # Calculate predictions.
-        # tf_nme = model.normalized_rmse(tf_predictions, tf_shapes)
-        tf_ne = model.normalized_error(tf_predictions, tf_shapes)
-        tf_nme = model.normalized_mean_error(tf_ne)
 
         # Restore the moving average version of the learned variables for eval.
         variable_averages = tf.train.ExponentialMovingAverage(g_config['MOVING_AVERAGE_DECAY'])
@@ -137,11 +131,11 @@ def evaluate():
             print('%s: starting evaluation on (%s).' % (datetime.now(), g_config['eval_dataset']))
             start_time = time.time()
             for step in range(num_iter):
-                rmse, rse, img = sess.run([tf_nme, tf_ne, model.out_images])
-                error_level = min(9, int(rmse[0] * 100))
+                nme, ne, img = sess.run([model.batch_nme, model.batch_ne, model.out_images])
+                error_level = min(9, int(nme[0] * 100))
                 plt.imsave('Evaluate/err{}/step{}.png'.format(error_level, step), img[0])
-                errors.append(rse)
-                mean_errors.append(rmse)
+                errors.append(ne)
+                mean_errors.append(nme)
                 step += 1
                 if step % 20 == 0:
                     duration = time.time() - start_time

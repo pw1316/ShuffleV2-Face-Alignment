@@ -24,12 +24,12 @@ tf.flags.DEFINE_string('dataset', 'Dataset/300W/*/Images/*.png', """The dataset 
 MDM_MODEL_PATH = 'graph.pb'
 
 
-def normalized_error(pred, gt_truth):
+def normalized_batch_nme(pred, gt_truth):
     norm = np.sqrt(np.sum(np.square(gt_truth[36, :] - gt_truth[45, :])))
     return np.sqrt(np.sum(np.square(pred - gt_truth), 1)) / norm
 
 
-def normalized_mean_error(n_error):
+def normalized_nme(n_error):
     assert np.sum(n_error) / 68 == np.mean(n_error)
     return np.mean(n_error)
 
@@ -76,8 +76,8 @@ def influence():
                 assert isinstance(prediction, np.ndarray)
                 prediction = prediction.reshape((68, 2))
                 prediction = prediction[:, [1, 0]]
-                error = normalized_error(prediction, mp_image.landmarks['PTS'].points)
-                mean_error = normalized_mean_error(error)
+                error = normalized_batch_nme(prediction, mp_image.landmarks['PTS'].points)
+                mean_error = normalized_nme(error)
                 error_level = min(9, int(mean_error * 100))
 
                 concat_image = utils.draw_landmarks_discrete(
