@@ -99,4 +99,6 @@ Dataset
 Evaluate/
 extract_patches_op/*.so
 extract_patches_op/*.dll
+*.pb
+*.tflite
 theano_mdm.pb
