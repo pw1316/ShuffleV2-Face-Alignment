@@ -189,8 +189,8 @@ def _shuffle_block(
         for i in range(1, depth):
             with tf.variable_scope('Unit{}'.format(i)):
                 with tf.name_scope('ChannelShuffle'):
-                    ll, lr = tf.split(left, [out_filters // 4, out_filters // 4], -1)
-                    rl, rr = tf.split(right, [out_filters // 4, out_filters // 4], -1)
+                    ll, lr = tf.split(left, 2, -1)
+                    rl, rr = tf.split(right, 2, -1)
                     left = tf.concat([ll, rl], -1)
                     right = tf.concat([lr, rr], -1)
                 right = _conv2d(

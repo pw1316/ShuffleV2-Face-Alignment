@@ -89,7 +89,10 @@ ENV/
 .ropeproject
 
 .idea/
+.vs/
+*.vcxproj.user
 .vscode/
+temp/
 ckpt/
 # including soft link
 Dataset
