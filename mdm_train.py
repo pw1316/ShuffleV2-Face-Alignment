@@ -85,8 +85,8 @@ def train(scope=''):
             _O_MIN_H = 0.15
             _O_MAX_H = 1.0
             if np.random.rand() < .3:
-                rh = int((np.random.rand() * (_O_MAX_H - _O_MIN_H) + _O_MIN_H) * 112)
-                rw = int(12544 * _O_AREA / rh)
+                rh = min(112, int((np.random.rand() * (_O_MAX_H - _O_MIN_H) + _O_MIN_H) * 112))
+                rw = min(112, int(12544 * _O_AREA / rh))
                 dy = int(np.random.rand() * (112 - rh))
                 dx = int(np.random.rand() * (112 - rw))
                 random_image[dy:dy+rh, dx:dx+rw] = np.random.rand(rh, rw, 3)
