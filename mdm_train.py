@@ -48,6 +48,10 @@ def train(scope=''):
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         assert(isinstance(_mean_shape, np.ndarray))
         assert(_mean_shape.shape[0] == g_config['num_patches'])
+        _negatives = []
+        for mp_image in mio.import_images('Dataset/Neg/*.png', verbose=True):
+            _negatives.append(mp_image.pixels.transpose(1, 2, 0).astype(np.float32))
+        _num_negatives = len(_negatives)
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
@@ -89,7 +93,11 @@ def train(scope=''):
                 rw = min(112, int(12544 * _O_AREA / rh))
                 dy = int(np.random.rand() * (112 - rh))
                 dx = int(np.random.rand() * (112 - rw))
-                random_image[dy:dy+rh, dx:dx+rw] = np.random.rand(rh, rw, 3)
+                idx = int(np.random.rand() * _num_negatives)
+                random_image[dy:dy+rh, dx:dx+rw] = np.minimum(
+                    1.0,
+                    _negatives[idx][dy:dy+rh, dx:dx+rw] + np.random.rand(rh, rw, 3)
+                )
 
             return random_image, random_shape
 
