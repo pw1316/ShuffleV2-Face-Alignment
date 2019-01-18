@@ -96,7 +96,7 @@ def train(scope=''):
                 idx = int(np.random.rand() * _num_negatives)
                 random_image[dy:dy+rh, dx:dx+rw] = np.minimum(
                     1.0,
-                    _negatives[idx][dy:dy+rh, dx:dx+rw] + np.random.rand(rh, rw, 3)
+                    _negatives[idx][dy:dy+rh, dx:dx+rw]
                 )
 
             return random_image, random_shape
