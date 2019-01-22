@@ -91,7 +91,7 @@ def evaluate():
                 batch_size=1,
                 num_patches=g_config['num_patches'],
                 num_channels=3,
-                multiplyer=g_config['multiplyer'],
+                multiplier=g_config['multiplier'],
                 is_training=False
             )
 

@@ -17,7 +17,7 @@ with tf.Graph().as_default() as graph, tf.Session(graph=graph) as sess:
         batch_size=30,
         num_patches=73,
         num_channels=3,
-        multiplyer=g_config['multiplyer'],
+        multiplier=g_config['multiplier'],
     )
     with tf.name_scope('Validate', values=[tf_images, tf_shapes, tf_mean_shape]):
         tf_model_v = MDMModel(
@@ -27,7 +27,7 @@ with tf.Graph().as_default() as graph, tf.Session(graph=graph) as sess:
             batch_size=30,
             num_patches=73,
             num_channels=3,
-            multiplyer=g_config['multiplyer'],
+            multiplier=g_config['multiplier'],
             is_training=False
         )
 

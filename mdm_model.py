@@ -231,7 +231,7 @@ class MDMModel:
     def __init__(
             self, images, shapes, mean_shape,
             batch_size, num_patches, num_channels,
-            multiplyer=1.0,
+            multiplier=1.0,
             is_training=True
     ):
         self.in_images = images
@@ -240,6 +240,7 @@ class MDMModel:
         self.batch_size = batch_size
         self.num_patches = num_patches
         self.num_channels = num_channels
+        self.multiplier = multiplier
         self.is_training = is_training
 
         with tf.variable_scope('Network', values=[self.in_mean_shape], reuse=tf.AUTO_REUSE):
