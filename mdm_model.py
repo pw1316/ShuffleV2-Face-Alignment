@@ -231,6 +231,7 @@ class MDMModel:
     def __init__(
             self, images, shapes, mean_shape,
             batch_size, num_patches, num_channels,
+            multiplyer=1.0,
             is_training=True
     ):
         self.in_images = images

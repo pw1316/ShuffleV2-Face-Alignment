@@ -160,7 +160,8 @@ def train(scope=''):
                 tf_mean_shape,
                 batch_size=g_config['batch_size'],
                 num_patches=g_config['num_patches'],
-                num_channels=3
+                num_channels=3,
+                multiplyer=g_config['multiplyer']
             )
             tf_grads = opt.compute_gradients(tf_model.nme)
             with tf.name_scope('Validate'):
@@ -171,6 +172,7 @@ def train(scope=''):
                     batch_size=50,
                     num_patches=g_config['num_patches'],
                     num_channels=3,
+                    multiplyer=g_config['multiplyer'],
                     is_training=False
                 )
         tf.summary.histogram('dx', tf_model.prediction - tf_shapes, collections=['train'])

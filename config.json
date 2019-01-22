@@ -11,6 +11,7 @@
     "learning_rate": 0.001,
     "learning_rate_step": 500,
     "learning_rate_decay": 0.97,
+    "multiplyer": 1.0,
     "batch_size": 30,
     "max_steps": 200000,
     "num_examples": 4135,
