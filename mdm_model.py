@@ -243,6 +243,8 @@ class MDMModel:
         self.multiplier = multiplier
         self.is_training = is_training
 
+        DEPTH_BASE = 232
+
         with tf.variable_scope('Network', values=[self.in_mean_shape], reuse=tf.AUTO_REUSE):
             with tf.variable_scope('Initial'):
                 inputs = _conv2d(
@@ -258,17 +260,17 @@ class MDMModel:
                     name='MaxPooling'
                 )
             inputs = _shuffle_block(
-                inputs, 128, 232, [3, 3], [2, 2], 4,
+                inputs, 128, DEPTH_BASE, [3, 3], [2, 2], 4,
                 training=self.is_training,
                 name='ShuffleBlock1'
             )
             inputs = _shuffle_block(
-                inputs, 232, 464, [3, 3], [2, 2], 8,
+                inputs, DEPTH_BASE, 2 * DEPTH_BASE, [3, 3], [2, 2], 8,
                 training=self.is_training,
                 name='ShuffleBlock2'
             )
             inputs = _shuffle_block(
-                inputs, 464, 928, [3, 3], [2, 2], 4,
+                inputs, 2 * DEPTH_BASE, 4 * DEPTH_BASE, [3, 3], [2, 2], 4,
                 training=self.is_training,
                 name='ShuffleBlock3'
             )
