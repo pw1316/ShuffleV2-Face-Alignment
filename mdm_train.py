@@ -48,10 +48,10 @@ def train(scope=''):
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         assert(isinstance(_mean_shape, np.ndarray))
         assert(_mean_shape.shape[0] == g_config['num_patches'])
-        _negatives = []
-        for mp_image in mio.import_images('Dataset/Neg/*.png', verbose=True):
-            _negatives.append(mp_image.pixels.transpose(1, 2, 0).astype(np.float32))
-        _num_negatives = len(_negatives)
+        # _negatives = []
+        # for mp_image in mio.import_images('Dataset/Neg/*.png', verbose=True):
+        #     _negatives.append(mp_image.pixels.transpose(1, 2, 0).astype(np.float32))
+        # _num_negatives = len(_negatives)
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
