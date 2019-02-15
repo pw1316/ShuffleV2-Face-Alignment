@@ -227,7 +227,8 @@ def _normalized_mean_error(pred, gt_truth, num_patches=73):
     return tf.reduce_mean(_batch_normalized_mean_error(pred, gt_truth, num_patches))
 
 
-_DEPTH_BASE = 232
+_INIT_DEPTH = 48
+_DEPTH_BASE = 96
 
 
 class MDMModel:
@@ -250,7 +251,7 @@ class MDMModel:
         with tf.variable_scope('Network', values=[self.in_mean_shape], reuse=tf.AUTO_REUSE):
             with tf.variable_scope('Initial'):
                 inputs = _conv2d(
-                    self.in_images, 128, [3, 3],
+                    self.in_images, _INIT_DEPTH, [3, 3],
                     activation=tf.nn.relu,
                     use_bias=False,
                     use_bn=True,
@@ -262,7 +263,7 @@ class MDMModel:
                     name='MaxPooling'
                 )
             inputs = _shuffle_block(
-                inputs, 128, self.depth, [3, 3], [2, 2], 4,
+                inputs, _INIT_DEPTH, self.depth, [3, 3], [2, 2], 4,
                 training=self.is_training,
                 name='ShuffleBlock1'
             )
