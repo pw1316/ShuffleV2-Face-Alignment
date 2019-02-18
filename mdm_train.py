@@ -48,10 +48,10 @@ def train(scope=''):
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         assert(isinstance(_mean_shape, np.ndarray))
         assert(_mean_shape.shape[0] == g_config['num_patches'])
-        # _negatives = []
-        # for mp_image in mio.import_images('Dataset/Neg/*.png', verbose=True):
-        #     _negatives.append(mp_image.pixels.transpose(1, 2, 0).astype(np.float32))
-        # _num_negatives = len(_negatives)
+        _negatives = []
+        for mp_image in mio.import_images('Dataset/Neg/*.png', verbose=True):
+            _negatives.append(mp_image.pixels.transpose(1, 2, 0).astype(np.float32))
+        _num_negatives = len(_negatives)
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
@@ -71,8 +71,8 @@ def train(scope=''):
             maxy, maxx = np.max(bb, 0)
             bbsize = max(maxx - minx, maxy - miny)
             center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-            # shift = (np.random.rand(2) - 0.5) / 6. * bbsize
-            shift = np.zeros(2, np.float32)
+            shift = (np.random.rand(2) - 0.5) / 6. * bbsize
+            # shift = np.zeros(2, np.float32)
             image.landmarks['bb'] = PointCloud(
                 [
                     [center[0] - bbsize * 0.5 + shift[0], center[1] - bbsize * 0.5 + shift[1]],
@@ -86,19 +86,19 @@ def train(scope=''):
             random_shape = image.landmarks['PTS'].points.astype('float32')
 
             # Occlude
-            # _O_AREA = 0.15
-            # _O_MIN_H = 0.15
-            # _O_MAX_H = 1.0
-            # if np.random.rand() < .3:
-            #     rh = min(112, int((np.random.rand() * (_O_MAX_H - _O_MIN_H) + _O_MIN_H) * 112))
-            #     rw = min(112, int(12544 * _O_AREA / rh))
-            #     dy = int(np.random.rand() * (112 - rh))
-            #     dx = int(np.random.rand() * (112 - rw))
-            #     idx = int(np.random.rand() * _num_negatives)
-            #     random_image[dy:dy+rh, dx:dx+rw] = np.minimum(
-            #         1.0,
-            #         _negatives[idx][dy:dy+rh, dx:dx+rw]
-            #     )
+            _O_AREA = 0.15
+            _O_MIN_H = 0.15
+            _O_MAX_H = 1.0
+            if np.random.rand() < .3:
+                rh = min(112, int((np.random.rand() * (_O_MAX_H - _O_MIN_H) + _O_MIN_H) * 112))
+                rw = min(112, int(12544 * _O_AREA / rh))
+                dy = int(np.random.rand() * (112 - rh))
+                dx = int(np.random.rand() * (112 - rw))
+                idx = int(np.random.rand() * _num_negatives)
+                random_image[dy:dy+rh, dx:dx+rw] = np.minimum(
+                    1.0,
+                    _negatives[idx][dy:dy+rh, dx:dx+rw]
+                )
 
             return random_image, random_shape
 
