@@ -103,7 +103,12 @@ def train(scope=''):
             return decoded_image, decoded_shape
 
         with tf.name_scope('DataProvider'):
-            tf_dataset = tf.data.TFRecordDataset([str(path_base / 'train.bin')])
+            tf_dataset = tf.data.TFRecordDataset([
+                str(path_base / 'train_0.bin'),
+                str(path_base / 'train_1.bin'),
+                str(path_base / 'train_2.bin'),
+                str(path_base / 'train_3.bin')
+            ])
             tf_dataset = tf_dataset.repeat()
             tf_dataset = tf_dataset.map(decode_feature_and_augment, num_parallel_calls=5)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
