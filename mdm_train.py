@@ -55,36 +55,7 @@ def train(scope=''):
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
-        def get_random_sample(image, shape, rotation_stddev=10):
-            # Read a random image with landmarks and bb
-            image = menpo.image.Image(image.transpose((2, 0, 1)), copy=False)
-            image.landmarks['PTS'] = PointCloud(shape)
-
-            if np.random.rand() < .5:
-                image = utils.mirror_image(image)
-            if np.random.rand() < .5:
-                theta = np.random.normal(scale=rotation_stddev)
-                rot = menpo.transform.rotate_ccw_about_centre(image.landmarks['PTS'], theta)
-                image = image.warp_to_shape(image.shape, rot)
-            bb = image.landmarks['PTS'].bounding_box().points
-            miny, minx = np.min(bb, 0)
-            maxy, maxx = np.max(bb, 0)
-            bbsize = max(maxx - minx, maxy - miny)
-            center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-            shift = (np.random.rand(2) - 0.5) / 6. * bbsize
-            # shift = np.zeros(2, np.float32)
-            image.landmarks['bb'] = PointCloud(
-                [
-                    [center[0] - bbsize * 0.5 + shift[0], center[1] - bbsize * 0.5 + shift[1]],
-                    [center[0] + bbsize * 0.5 + shift[0], center[1] + bbsize * 0.5 + shift[1]],
-                ]
-            ).bounding_box()
-            proportion = 1.0 / 6.0 + float(np.random.rand() - 0.5) / 10.0
-            image = image.crop_to_landmarks_proportion(proportion, group='bb')
-            image = image.resize((112, 112))
-            random_image = image.pixels.transpose(1, 2, 0).astype('float32')
-            random_shape = image.landmarks['PTS'].points.astype('float32')
-
+        def get_random_sample(image, shape):
             # Occlude
             _O_AREA = 0.15
             _O_MIN_H = 0.15
@@ -95,12 +66,11 @@ def train(scope=''):
                 dy = int(np.random.rand() * (112 - rh))
                 dx = int(np.random.rand() * (112 - rw))
                 idx = int(np.random.rand() * _num_negatives)
-                random_image[dy:dy+rh, dx:dx+rw] = np.minimum(
+                image[dy:dy+rh, dx:dx+rw] = np.minimum(
                     1.0,
                     _negatives[idx][dy:dy+rh, dx:dx+rw]
                 )
-
-            return random_image, random_shape
+            return image, shape
 
         def decode_feature_and_augment(serialized):
             feature = {
@@ -109,7 +79,7 @@ def train(scope=''):
             }
             features = tf.parse_single_example(serialized, features=feature)
             decoded_image = tf.decode_raw(features['train/image'], tf.float32)
-            decoded_image = tf.reshape(decoded_image, (336, 336, 3))
+            decoded_image = tf.reshape(decoded_image, (112, 112, 3))
             decoded_shape = tf.sparse.to_dense(features['train/shape'])
             decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
 
