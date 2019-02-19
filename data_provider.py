@@ -127,12 +127,12 @@ def load_image(path, proportion, size):
     return mp_image
 
 
-def process_images(queue, i, paths):
+def process_images(queue, i, augment, paths):
     print('begin p{}'.format(i), os.getpid(), os.getppid())
     cnt = 0
     for path in paths:
         mp_image = mio.import_image(path)
-        for j in range(32):
+        for j in range(augment):
             try:
                 mp_image_i = mp_image.copy()
                 if j % 2 == 1:
@@ -200,7 +200,9 @@ def process_images(queue, i, paths):
                     queue.put_nowait((image, shape))
                     done = True
                 except Exception:
-                    pass
+                    print('p{} wait'.format(i))
+                    traceback.print_exc()
+                    time.sleep(0.5)
         cnt += 1
         print('calc{} done {}/{}'.format(i, cnt, len(paths)))
     print('end p{}'.format(i), len(paths))
@@ -226,7 +228,8 @@ def write_images(queue, i, path_base, max_to_write):
                 ofs.write(tf.train.Example(features=features).SerializeToString())
                 wrote += 1
             except Exception:
-                time.sleep(0.1)
+                print('r{} wait'.format(i))
+                time.sleep(0.5)
     print('end r{}'.format(i), path_base)
 
 
@@ -299,24 +302,25 @@ def prepare_images(paths, num_patches=73, verbose=True):
         print('preparing train data')
         random.shuffle(train_paths)
         num_process = 4
+        augment = 16
         image_per_calc = int((len(train_paths) + num_process - 1) / num_process)
-        image_per_write = int((len(train_paths) * 32 + num_process - 1) / num_process)
 
         manager = multiprocessing.Manager()
         message_queue = [manager.Queue(64) for _ in range(num_process)]
         calc_pool = multiprocessing.Pool(num_process)
         write_pool = multiprocessing.Pool(num_process)
         for i in range(num_process):
+            train_paths_i = train_paths[i * image_per_calc: (i + 1) * image_per_calc]
             calc_pool.apply_async(process_images, args=(
                 message_queue[i],
-                i,
-                train_paths[i * image_per_calc: (i + 1) * image_per_calc],
+                i, augment,
+                train_paths_i,
             ))
             write_pool.apply_async(write_images, args=(
                 message_queue[i],
                 i,
                 path_base,
-                image_per_write,
+                len(train_paths_i) * augment,
             ))
         calc_pool.close()
         write_pool.close()
