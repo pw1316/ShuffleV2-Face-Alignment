@@ -1,8 +1,8 @@
 {
     "num_patches": 75,
     "MOVING_AVERAGE_DECAY": 0.9999,
-    "train_dataset": "Dataset/FW2/Images/*.png",
-    "eval_dataset": "Dataset/FW2/Images/*.png",
+    "train_dataset": "Dataset/FW3/Images/*.png",
+    "eval_dataset": "Dataset/FW3/Images/*.png",
     "train_dir": "ckpt/v0.0.4",
     "ckpt_dir": "",
     "eval_dir": "ckpt/eval",
