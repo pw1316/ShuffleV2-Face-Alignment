@@ -22,7 +22,7 @@ def build_mean_shape(paths, num_patches):
         landmark = np.genfromtxt(landmark_path)[:, [1, 0]]
         if landmark.shape[0] == num_patches:
             landmarks += [mshape.PointCloud(landmark)]
-    return compute_reference_shape(landmarks, verbose=True).points.astype(np.float32)
+    return compute_reference_shape(landmarks, diagonal=None, verbose=True).points.astype(np.float32)
 
 
 def grey_to_rgb(im):
@@ -78,6 +78,8 @@ def align_reference_shape_to_112(reference_shape):
 
 def load_image(path, proportion, size):
     mp_image = mio.import_image(path)
+    landmark_path = path.parent.parent / 'Fix3' / (path.stem + '.txt')
+    mp_image.landmarks['PTS'] = mshape.PointCloud(np.genfromtxt(landmark_path)[:, [1, 0]])
     assert isinstance(mp_image, menpo.image.Image)
 
     miny, minx = np.min(mp_image.landmarks['PTS'].bounding_box().points, 0)
@@ -93,7 +95,7 @@ def load_image(path, proportion, size):
     pad_shape = mp_image.landmarks['PTS'].points + np.array([pady, padx])
 
     mp_image = menpo.image.Image(pad_image)
-    mp_image.landmarks['PTS'] = PointCloud(pad_shape)
+    mp_image.landmarks['PTS'] = mshape.PointCloud(pad_shape)
     assert isinstance(mp_image, menpo.image.Image)
 
     miny, minx = np.min(mp_image.landmarks['PTS'].bounding_box().points, 0)
@@ -101,7 +103,7 @@ def load_image(path, proportion, size):
     bbsize = max(maxx - minx, maxy - miny)
 
     center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-    mp_image.landmarks['bb'] = PointCloud(
+    mp_image.landmarks['bb'] = mshape.PointCloud(
         [
             [center[0] - bbsize * 0.5, center[1] - bbsize * 0.5],
             [center[0] + bbsize * 0.5, center[1] + bbsize * 0.5],
@@ -124,25 +126,27 @@ def process_images(queue, i, augment, paths):
     cnt = 0
     for path in paths:
         mp_image = mio.import_image(path)
+        landmark_path = path.parent.parent / 'Fix3' / (path.stem + '.txt')
+        mp_image.landmarks['PTS'] = mshape.PointCloud(np.genfromtxt(landmark_path)[:, [1, 0]])
         for j in range(augment):
             try:
                 mp_image_i = mp_image.copy()
                 if j % 2 == 1:
                     mp_image_i = utils.mirror_image(mp_image_i)
                 if np.random.rand() < .5:
-                    theta = np.random.normal(scale=10)
+                    theta = np.random.normal(scale=20)
                     rot = menpo.transform.rotate_ccw_about_centre(mp_image_i.landmarks['PTS'], theta)
                     mp_image_i = mp_image_i.warp_to_shape(mp_image_i.shape, rot, warp_landmarks=True)
 
                 # Bounding box perturbation
-                bb = mp_image_i.landmarks['PTS'].bounding_box().points
+                bb = mp_image_i.landmarks['PTS'].bounding_box().points.astype(np.float32)
                 miny, minx = np.min(bb, 0)
                 maxy, maxx = np.max(bb, 0)
                 bbsize = max(maxx - minx, maxy - miny)
                 center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-                shift = (np.random.rand(2) - 0.5) / 6. * bbsize
-                proportion = (1.0 / 6.0 + float(np.random.rand() - 0.5) / 3.0) * bbsize
-                mp_image_i.landmarks['bb'] = PointCloud(
+                shift = np.random.normal(0, 0.05, 2) * bbsize
+                proportion = (1.0 / 6.0 + float(np.random.normal(0, 0.15))) * bbsize
+                mp_image_i.landmarks['bb'] = mshape.PointCloud(
                     [
                         [
                             center[0] - bbsize * 0.5 - proportion + shift[0],
@@ -170,19 +174,19 @@ def process_images(queue, i, augment, paths):
                 ) + 100
                 c, h, w = mp_image_i.pixels.shape
                 pad_image = np.random.rand(c, h + pady + pady, w + padx + padx)
-                pad_image[:, pady: pady + h, padx: padx + w] = mp_image_i.pixels
-                pad_shape = mp_image_i.landmarks['PTS'].points + np.array([pady, padx])
-                pad_bb = mp_image_i.landmarks['bb'].points + np.array([pady, padx])
+                pad_image[:, pady: pady + h, padx: padx + w] = mp_image_i.pixels.astype(np.float32)
+                pad_shape = mp_image_i.landmarks['PTS'].points.astype(np.float32) + np.array([pady, padx])
+                pad_bb = mp_image_i.landmarks['bb'].points.astype(np.float32) + np.array([pady, padx])
 
                 mp_image_i = menpo.image.Image(pad_image)
-                mp_image_i.landmarks['PTS'] = PointCloud(pad_shape)
-                mp_image_i.landmarks['bb'] = PointCloud(pad_bb).bounding_box()
+                mp_image_i.landmarks['PTS'] = mshape.PointCloud(pad_shape)
+                mp_image_i.landmarks['bb'] = mshape.PointCloud(pad_bb).bounding_box()
                 mp_image_i = mp_image_i.crop_to_landmarks_proportion(0, group='bb')
                 mp_image_i = mp_image_i.resize((112, 112))
                 mp_image_i = grey_to_rgb(mp_image_i)
 
                 image = mp_image_i.pixels.transpose(1, 2, 0).astype(np.float32)
-                shape = mp_image_i.landmarks['PTS'].points
+                shape = mp_image_i.landmarks['PTS'].points.astype(np.float32)
             except Exception as e:
                 traceback.print_exc()
                 raise e
@@ -287,26 +291,33 @@ def prepare_images(paths, num_patches, verbose=True):
     else:
         print('preparing train data')
         random.shuffle(train_paths)
-        num_process = 4
-        augment = 16
+        num_write = 2
+        num_process = num_write * 2
+        augment = 20
         image_per_calc = int((len(train_paths) + num_process - 1) / num_process)
 
         manager = multiprocessing.Manager()
-        message_queue = [manager.Queue(64) for _ in range(num_process)]
+        message_queue = [manager.Queue(64) for _ in range(num_write)]
         calc_pool = multiprocessing.Pool(num_process)
-        write_pool = multiprocessing.Pool(num_process)
-        for i in range(num_process):
-            train_paths_i = train_paths[i * image_per_calc: (i + 1) * image_per_calc]
+        write_pool = multiprocessing.Pool(num_write)
+        for i in range(num_write):
+            train_paths_1 = train_paths[(i * 2) * image_per_calc: (i * 2 + 1) * image_per_calc]
+            train_paths_2 = train_paths[(i * 2 + 1) * image_per_calc: (i * 2 + 2) * image_per_calc]
             calc_pool.apply_async(process_images, args=(
                 message_queue[i],
-                i, augment,
-                train_paths_i,
+                i * 2, augment,
+                train_paths_1,
+            ))
+            calc_pool.apply_async(process_images, args=(
+                message_queue[i],
+                i * 2 + 1, augment,
+                train_paths_2,
             ))
             write_pool.apply_async(write_images, args=(
                 message_queue[i],
                 i,
                 path_base,
-                len(train_paths_i) * augment,
+                (len(train_paths_1) + len(train_paths_2)) * augment,
             ))
         calc_pool.close()
         write_pool.close()
@@ -334,11 +345,13 @@ def prepare_images(paths, num_patches, verbose=True):
                     print(status_str, end='')
 
                 mp_image = load_image(path, 1. / 6., 112)
-                mp_image.landmarks['init'] = PointCloud(align_reference_shape_to_112(reference_shape.points))
+                mp_image.landmarks['init'] = mshape.PointCloud(
+                    align_reference_shape_to_112(mean_shape.points.astype(np.float32))
+                )
 
                 image = mp_image.pixels.transpose(1, 2, 0).astype(np.float32)
-                shape = mp_image.landmarks['PTS'].points
-                init = mp_image.landmarks['init'].points
+                shape = mp_image.landmarks['PTS'].points.astype(np.float32)
+                init = mp_image.landmarks['init'].points.astype(np.float32)
                 features = tf.train.Features(
                     feature={
                         'test/image': tf.train.Feature(
@@ -380,7 +393,7 @@ def prepare_images(paths, num_patches, verbose=True):
                 mp_image = load_image(path, 1. / 6., 112)
 
                 image = mp_image.pixels.transpose(1, 2, 0).astype(np.float32)
-                shape = mp_image.landmarks['PTS'].points
+                shape = mp_image.landmarks['PTS'].points.astype(np.float32)
                 features = tf.train.Features(
                     feature={
                         'validate/image': tf.train.Feature(
