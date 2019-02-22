@@ -87,14 +87,14 @@ def norm_idx(num_patches):
 # =====Mirror=====
 def mirror_landmarks(landmarks, image_width):
     assert isinstance(landmarks, mshape.PointCloud)
-    tmp = np.array([0, image_width]) - landmarks.points
+    tmp = np.array([0, image_width]) - landmarks.points.astype(np.float32)
     tmp[:, 0] = -tmp[:, 0]
     return mshape.PointCloud(tmp[_mirrored_parts[landmarks.points.shape[0]]])
 
 
 def mirror_bounding_box(bb, image_size):
     assert isinstance(bb, mshape.PointDirectedGraph)
-    tmp = np.array([0, image_size]) - bb.points
+    tmp = np.array([0, image_size]) - bb.points.astype(np.float32)
     tmp[:, 0] = -tmp[:, 0]
     return mshape.PointCloud(tmp).bounding_box()
 

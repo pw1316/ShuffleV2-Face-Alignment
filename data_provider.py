@@ -1,4 +1,4 @@
-from menpo.shape.pointcloud import PointCloud
+import menpo.shape as mshape
 from menpofit.builder import compute_reference_shape
 from pathlib import Path
 
@@ -10,22 +10,14 @@ import tensorflow as tf
 import random
 
 
-def build_reference_shape(paths, num_patches=73, diagonal=200):
-    """Builds the reference shape.
-
-    Args:
-        paths: train image paths.
-        num_patches: number of landmarks
-        diagonal: the diagonal of the reference shape in pixels.
-    Returns:
-        the reference shape.
-    """
+def build_mean_shape(paths, num_patches):
     landmarks = []
     for path in paths:
-        group = mio.import_landmark_file(path.parent / (path.stem + '.pts'))
-        if group.n_points == num_patches:
-            landmarks += [group]
-    return compute_reference_shape(landmarks, diagonal=diagonal).points.astype(np.float32)
+        landmark_path = path.parent.parent / 'Fix3' / (path.stem + '.txt')
+        landmark = np.genfromtxt(landmark_path)[:, [1, 0]]
+        if landmark.shape[0] == num_patches:
+            landmarks += [mshape.PointCloud(landmark)]
+    return compute_reference_shape(landmarks, verbose=True).points.astype(np.float32)
 
 
 def grey_to_rgb(im):
@@ -122,8 +114,8 @@ def load_image(path, proportion, size):
     return mp_image
 
 
-def prepare_images(paths, num_patches=73, verbose=True):
-    """Save Train Images to TFRecord, for ShuffleNet
+def prepare_images(paths, num_patches, verbose=True):
+    """Save Train/Test/Validate Images to TFRecord, for ShuffleNet
     Args:
         paths: a list of strings containing the data directories.
         num_patches: number of landmarks
@@ -149,17 +141,11 @@ def prepare_images(paths, num_patches=73, verbose=True):
     else:
         for path in paths:
             for file in Path('.').glob(path):
-                try:
-                    mio.import_landmark_file(
-                        str(Path(file.parent.parent / 'BoundingBoxes' / (file.stem + '.pts')))
-                    )
-                except ValueError:
-                    continue
                 image_paths.append(file)
         print('Got all image paths...')
         random.shuffle(image_paths)
-        num_train = int(len(image_paths) * 0.7)
-        num_test = int(len(image_paths) * 0.2)
+        num_train = int(len(image_paths) * 0.9)
+        num_test = int(len(image_paths) * 0.09)
         train_paths = sorted(image_paths[:num_train])
         test_paths = sorted(image_paths[num_train:num_train+num_test])
         val_paths = sorted(image_paths[num_train+num_test:])
@@ -172,12 +158,13 @@ def prepare_images(paths, num_patches=73, verbose=True):
         print('Write Train/Test/Validate {}/{}/{}'.format(len(train_paths), len(test_paths), len(val_paths)))
 
     # Third: export reference shape on train
-    if Path(path_base / 'reference_shape.pkl').exists():
-        reference_shape = PointCloud(mio.import_pickle(path_base / 'reference_shape.pkl'))
+    if Path(path_base / 'mean_shape.pkl').exists():
+        mean_shape = mshape.PointCloud(mio.import_pickle(path_base / 'mean_shape.pkl'))
+        print('Imported mean_shape.pkl')
     else:
-        reference_shape = PointCloud(build_reference_shape(train_paths, num_patches))
-        mio.export_pickle(reference_shape.points, path_base / 'reference_shape.pkl', overwrite=True)
-    print('Created reference_shape.pkl')
+        mean_shape = mshape.PointCloud(build_mean_shape(train_paths, num_patches))
+        mio.export_pickle(mean_shape.points, path_base / 'mean_shape.pkl', overwrite=True)
+        print('Created mean_shape.pkl')
 
     # Fourth: image shape & pca
     # No need for ShuffleNet
