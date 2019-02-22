@@ -1,5 +1,6 @@
 import menpo.shape as mshape
 from menpofit.builder import compute_reference_shape
+import multiprocessing
 from pathlib import Path
 
 import menpo.feature
@@ -8,6 +9,10 @@ import menpo.io as mio
 import numpy as np
 import tensorflow as tf
 import random
+import time
+import utils
+import os
+import traceback
 
 
 def build_mean_shape(paths, num_patches):
@@ -114,6 +119,112 @@ def load_image(path, proportion, size):
     return mp_image
 
 
+def process_images(queue, i, augment, paths):
+    print('begin p{}'.format(i), os.getpid(), os.getppid())
+    cnt = 0
+    for path in paths:
+        mp_image = mio.import_image(path)
+        for j in range(augment):
+            try:
+                mp_image_i = mp_image.copy()
+                if j % 2 == 1:
+                    mp_image_i = utils.mirror_image(mp_image_i)
+                if np.random.rand() < .5:
+                    theta = np.random.normal(scale=10)
+                    rot = menpo.transform.rotate_ccw_about_centre(mp_image_i.landmarks['PTS'], theta)
+                    mp_image_i = mp_image_i.warp_to_shape(mp_image_i.shape, rot, warp_landmarks=True)
+
+                # Bounding box perturbation
+                bb = mp_image_i.landmarks['PTS'].bounding_box().points
+                miny, minx = np.min(bb, 0)
+                maxy, maxx = np.max(bb, 0)
+                bbsize = max(maxx - minx, maxy - miny)
+                center = [(miny + maxy) / 2., (minx + maxx) / 2.]
+                shift = (np.random.rand(2) - 0.5) / 6. * bbsize
+                proportion = (1.0 / 6.0 + float(np.random.rand() - 0.5) / 3.0) * bbsize
+                mp_image_i.landmarks['bb'] = PointCloud(
+                    [
+                        [
+                            center[0] - bbsize * 0.5 - proportion + shift[0],
+                            center[1] - bbsize * 0.5 - proportion + shift[1]
+                        ],
+                        [
+                            center[0] + bbsize * 0.5 + proportion + shift[0],
+                            center[1] + bbsize * 0.5 + proportion + shift[1]
+                        ],
+                    ]
+                ).bounding_box()
+
+                # Padding, Crop, Resize
+                pady = int(
+                    max(
+                        -min(center[0] - bbsize * 0.5 - proportion + shift[0], 0),
+                        max(center[0] + bbsize * 0.5 + proportion + shift[0] - mp_image_i.height, 0)
+                    )
+                ) + 100
+                padx = int(
+                    max(
+                        -min(center[1] - bbsize * 0.5 - proportion + shift[1], 0),
+                        max(center[1] + bbsize * 0.5 + proportion + shift[1] - mp_image_i.width, 0)
+                    )
+                ) + 100
+                c, h, w = mp_image_i.pixels.shape
+                pad_image = np.random.rand(c, h + pady + pady, w + padx + padx)
+                pad_image[:, pady: pady + h, padx: padx + w] = mp_image_i.pixels
+                pad_shape = mp_image_i.landmarks['PTS'].points + np.array([pady, padx])
+                pad_bb = mp_image_i.landmarks['bb'].points + np.array([pady, padx])
+
+                mp_image_i = menpo.image.Image(pad_image)
+                mp_image_i.landmarks['PTS'] = PointCloud(pad_shape)
+                mp_image_i.landmarks['bb'] = PointCloud(pad_bb).bounding_box()
+                mp_image_i = mp_image_i.crop_to_landmarks_proportion(0, group='bb')
+                mp_image_i = mp_image_i.resize((112, 112))
+                mp_image_i = grey_to_rgb(mp_image_i)
+
+                image = mp_image_i.pixels.transpose(1, 2, 0).astype(np.float32)
+                shape = mp_image_i.landmarks['PTS'].points
+            except Exception as e:
+                traceback.print_exc()
+                raise e
+            done = False
+            while not done:
+                try:
+                    queue.put_nowait((image, shape))
+                    done = True
+                except Exception:
+                    print('p{} wait'.format(i))
+                    traceback.print_exc()
+                    time.sleep(0.5)
+        cnt += 1
+        print('calc{} done {}/{}'.format(i, cnt, len(paths)))
+    print('end p{}'.format(i), len(paths))
+
+
+def write_images(queue, i, path_base, max_to_write):
+    print('begin r{}'.format(i), os.getpid(), os.getppid())
+    wrote = 0
+    with tf.io.TFRecordWriter(str(path_base / 'train_{}.bin'.format(i))) as ofs:
+        while wrote < max_to_write:
+            try:
+                img, lms = queue.get_nowait()
+                features = tf.train.Features(
+                    feature={
+                        'train/image': tf.train.Feature(
+                            bytes_list=tf.train.BytesList(value=[tf.compat.as_bytes(img.tostring())])
+                        ),
+                        'train/shape': tf.train.Feature(
+                            float_list=tf.train.FloatList(value=lms.flatten())
+                        )
+                    }
+                )
+                ofs.write(tf.train.Example(features=features).SerializeToString())
+                wrote += 1
+            except Exception:
+                print('r{} wait'.format(i))
+                time.sleep(0.5)
+    print('end r{}'.format(i), path_base)
+
+
 def prepare_images(paths, num_patches, verbose=True):
     """Save Train/Test/Validate Images to TFRecord, for ShuffleNet
     Args:
@@ -123,6 +234,7 @@ def prepare_images(paths, num_patches, verbose=True):
     Returns:
         None
     """
+
     if len(paths) == 0:
         return
     # .../<Dataset>/Images/*.png -> .../<Dataset>
@@ -170,41 +282,37 @@ def prepare_images(paths, num_patches, verbose=True):
     # No need for ShuffleNet
 
     # Fifth: train data
-    if Path(path_base / 'train.bin').exists():
+    if Path(path_base / 'train_0.bin').exists():
         pass
     else:
+        print('preparing train data')
         random.shuffle(train_paths)
-        with tf.io.TFRecordWriter(str(path_base / 'train.bin')) as ofs:
-            print('Preparing train data...')
-            counter = 0
-            for path in train_paths:
-                counter += 1
-                if verbose:
-                    status = 10.0 * counter / len(train_paths)
-                    status_str = '\rPreparing {:2.2f}%['.format(status * 10)
-                    for i in range(int(status)):
-                        status_str += '='
-                    for i in range(int(status), 10):
-                        status_str += ' '
-                    status_str += '] {}     '.format(path)
-                    print(status_str, end='')
-                mp_image = load_image(path, 0.7, 336)
+        num_process = 4
+        augment = 16
+        image_per_calc = int((len(train_paths) + num_process - 1) / num_process)
 
-                image = mp_image.pixels.transpose(1, 2, 0).astype(np.float32)
-                shape = mp_image.landmarks['PTS'].points
-                features = tf.train.Features(
-                    feature={
-                        'train/image': tf.train.Feature(
-                            bytes_list=tf.train.BytesList(value=[tf.compat.as_bytes(image.tostring())])
-                        ),
-                        'train/shape': tf.train.Feature(
-                            float_list=tf.train.FloatList(value=shape.flatten())
-                        )
-                    }
-                )
-                ofs.write(tf.train.Example(features=features).SerializeToString())
-            if verbose:
-                print('')
+        manager = multiprocessing.Manager()
+        message_queue = [manager.Queue(64) for _ in range(num_process)]
+        calc_pool = multiprocessing.Pool(num_process)
+        write_pool = multiprocessing.Pool(num_process)
+        for i in range(num_process):
+            train_paths_i = train_paths[i * image_per_calc: (i + 1) * image_per_calc]
+            calc_pool.apply_async(process_images, args=(
+                message_queue[i],
+                i, augment,
+                train_paths_i,
+            ))
+            write_pool.apply_async(write_images, args=(
+                message_queue[i],
+                i,
+                path_base,
+                len(train_paths_i) * augment,
+            ))
+        calc_pool.close()
+        write_pool.close()
+        calc_pool.join()
+        write_pool.join()
+    print('prepared train data')
 
     # Sixth: test data
     if Path(path_base / 'test.bin').exists():

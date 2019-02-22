@@ -1,9 +1,9 @@
 {
     "num_patches": 73,
     "MOVING_AVERAGE_DECAY": 0.9999,
-    "train_dataset": "Dataset/FW2Shuffle/Images/*.png",
-    "eval_dataset": "Dataset/FW2Shuffle/Images/*.png",
-    "train_dir": "ckpt/v0.0.2-occlude-15-norand",
+    "train_dataset": "Dataset/FW2/Images/*.png",
+    "eval_dataset": "Dataset/FW2/Images/*.png",
+    "train_dir": "ckpt/v0.0.4",
     "ckpt_dir": "",
     "eval_dir": "ckpt/eval",
     "train_device": "/gpu:0",
