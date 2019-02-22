@@ -1,7 +1,7 @@
 from datetime import datetime
 import menpo
 import menpo.io as mio
-from menpo.shape.pointcloud import PointCloud
+import menpo.shape as mshape
 import numpy as np
 import os
 from pathlib import Path
@@ -44,7 +44,7 @@ def train(scope=''):
             num_patches=g_config['num_patches'], verbose=True
         )
         path_base = Path(g_config['train_dataset'].split(':')[0]).parent.parent
-        _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
+        _mean_shape = mio.import_pickle(path_base / 'mean_shape.pkl')
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         assert(isinstance(_mean_shape, np.ndarray))
         assert(_mean_shape.shape[0] == g_config['num_patches'])
@@ -83,12 +83,12 @@ def train(scope=''):
             decoded_shape = tf.sparse.to_dense(features['train/shape'])
             decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
 
-            random_image, random_shape = tf.py_func(
+            decoded_image, decoded_shape = tf.py_func(
                 get_random_sample, [decoded_image, decoded_shape], [tf.float32, tf.float32],
                 stateful=True,
                 name='RandomSample'
             )
-            return data_provider.distort_color(random_image), random_shape
+            return data_provider.distort_color(decoded_image), decoded_shape
 
         def decode_feature(serialized):
             feature = {

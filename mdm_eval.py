@@ -42,20 +42,15 @@ def flip_predictions(predictions, shapes):
     flipped_preds = []
     
     for pred, shape in zip(predictions, shapes):
-        pred = PointCloud(pred)
-        if pred.points.shape[0] == 68:
-            pred = utils.mirror_landmarks_68(pred, shape)
-        elif pred.points.shape[0] == 73:
-            pred = utils.mirror_landmarks_73(pred, shape)
-        flipped_preds.append(pred.points)
-
+        pred = utils.mirror_landmarks(PointCloud(pred), shape[1])
+        flipped_preds.append(pred.points.astype(np.float32))
     return np.array(flipped_preds, np.float32)
 
 
 def evaluate():
     with tf.Graph().as_default(), tf.device('/cpu:0'):
         path_base = Path(g_config['eval_dataset']).parent.parent
-        _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
+        _mean_shape = mio.import_pickle(path_base / 'mean_shape.pkl')
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 

@@ -17,7 +17,7 @@ def ckpt_pb(pb_path, lite_path):
     tf.reset_default_graph()
     with tf.Graph().as_default() as graph, tf.Session(graph=graph) as sess:
         path_base = Path(g_config['eval_dataset']).parent.parent
-        _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
+        _mean_shape = mio.import_pickle(path_base / 'mean_shape.pkl')
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         assert isinstance(_mean_shape, np.ndarray)
         print(_mean_shape.shape)

@@ -1,5 +1,5 @@
 {
-    "num_patches": 73,
+    "num_patches": 75,
     "MOVING_AVERAGE_DECAY": 0.9999,
     "train_dataset": "Dataset/FW2/Images/*.png",
     "eval_dataset": "Dataset/FW2/Images/*.png",

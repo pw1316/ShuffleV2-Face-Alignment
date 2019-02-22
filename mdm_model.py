@@ -306,7 +306,7 @@ class MDMModel:
                 self.nme = tf.reduce_mean(self.batch_nme)
             tf.summary.scalar('loss', self.nme, collections=['train' if self.is_training else 'validate'])
             self.out_images, = tf.py_func(
-                utils.batch_draw_landmarks_discrete,
+                utils.batch_draw_landmarks,
                 [self.in_images, self.in_shapes, self.prediction],
                 [tf.float32]
             )
