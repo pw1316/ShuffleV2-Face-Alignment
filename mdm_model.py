@@ -294,10 +294,10 @@ class MDMModel:
                 )
             with tf.variable_scope('Predict'):
                 inputs = _conv2d(
-                    inputs, 146, [1, 1],
+                    inputs, 150, [1, 1],
                     name='Convolution'
                 )
-                inputs = tf.reshape(inputs, [-1, 73, 2])
+                inputs = tf.reshape(inputs, [-1, 75, 2])
                 self.prediction = inputs + self.in_mean_shape
             with tf.name_scope('BatchLoss'):
                 self.batch_ne = _batch_normalized_error(self.prediction, self.in_shapes)

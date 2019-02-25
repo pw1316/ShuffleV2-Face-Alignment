@@ -23,8 +23,8 @@ def ckpt_pb(pb_path, lite_path):
         print(_mean_shape.shape)
 
         tf_img = tf.placeholder(dtype=tf.float32, shape=(1, 112, 112, 3), name='Inputs/InputImage')
-        tf_dummy = tf.placeholder(dtype=tf.float32, shape=(1, 73, 2), name='dummy')
-        tf_shape = tf.constant(_mean_shape, dtype=tf.float32, shape=(73, 2), name='Inputs/MeanShape')
+        tf_dummy = tf.placeholder(dtype=tf.float32, shape=(1, 75, 2), name='dummy')
+        tf_shape = tf.constant(_mean_shape, dtype=tf.float32, shape=(75, 2), name='Inputs/MeanShape')
 
         mdm_model.MDMModel(
             tf_img,

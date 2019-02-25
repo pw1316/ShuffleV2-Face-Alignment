@@ -291,7 +291,7 @@ def prepare_images(paths, num_patches, verbose=True):
     else:
         print('preparing train data')
         random.shuffle(train_paths)
-        num_write = 2
+        num_write = 4
         num_process = num_write * 2
         augment = 20
         image_per_calc = int((len(train_paths) + num_process - 1) / num_process)

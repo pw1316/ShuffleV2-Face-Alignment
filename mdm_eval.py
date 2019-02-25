@@ -75,7 +75,7 @@ def evaluate():
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes = tf_iterator.get_next(name='batch')
             tf_images.set_shape((1, 112, 112, 3))
-            tf_shapes.set_shape((1, 73, 2))
+            tf_shapes.set_shape((1, 75, 2))
 
         print('Loading model...')
         with tf.device(g_config['eval_device']):

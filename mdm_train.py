@@ -83,11 +83,11 @@ def train(scope=''):
             decoded_shape = tf.sparse.to_dense(features['train/shape'])
             decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
 
-            decoded_image, decoded_shape = tf.py_func(
-                get_random_sample, [decoded_image, decoded_shape], [tf.float32, tf.float32],
-                stateful=True,
-                name='RandomSample'
-            )
+            #decoded_image, decoded_shape = tf.py_func(
+            #    get_random_sample, [decoded_image, decoded_shape], [tf.float32, tf.float32],
+            #    stateful=True,
+            #    name='RandomSample'
+            #)
             return data_provider.distort_color(decoded_image), decoded_shape
 
         def decode_feature(serialized):
@@ -111,12 +111,13 @@ def train(scope=''):
             ])
             tf_dataset = tf_dataset.repeat()
             tf_dataset = tf_dataset.map(decode_feature_and_augment, num_parallel_calls=5)
+            tf_dataset = tf_dataset.shuffle(480)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
             tf_dataset = tf_dataset.prefetch(1)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes = tf_iterator.get_next(name='Batch')
             tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
-            tf_shapes.set_shape([g_config['batch_size'], 73, 2])
+            tf_shapes.set_shape([g_config['batch_size'], 75, 2])
 
             tf_dataset_v = tf.data.TFRecordDataset([str(path_base / 'validate.bin')])
             tf_dataset_v = tf_dataset_v.repeat()
@@ -126,7 +127,7 @@ def train(scope=''):
             tf_iterator_v = tf_dataset_v.make_one_shot_iterator()
             tf_images_v, tf_shapes_v = tf_iterator_v.get_next(name='ValidateBatch')
             tf_images_v.set_shape([50, 112, 112, 3])
-            tf_shapes_v.set_shape([50, 73, 2])
+            tf_shapes_v.set_shape([50, 75, 2])
 
         print('Defining model...')
         with tf.device(g_config['train_device']):
