@@ -1,7 +1,5 @@
 import cv2
 import json
-import menpo.image as mimage
-import menpo.shape as mshape
 import numpy as np
 import tensorflow as tf
 
@@ -86,30 +84,40 @@ def norm_idx(num_patches):
 
 # =====Mirror=====
 def mirror_landmarks(landmarks, image_width):
-    assert isinstance(landmarks, mshape.PointCloud)
-    tmp = np.array([0, image_width]) - landmarks.points.astype(np.float32)
+    """
+    Mirror landmarks along y-axis
+    :param landmarks: landmarks [[y0, x0], [y1, x1], ...]
+    :param image_width: width of the image, in pixels
+    :return: mirrored landmarks
+    """
+    mirrored = np.zeros_like(landmarks, landmarks.dtype)
+    tmp = np.array([0, image_width]) - landmarks
     tmp[:, 0] = -tmp[:, 0]
-    return mshape.PointCloud(tmp[_mirrored_parts[landmarks.points.shape[0]]])
+    mirrored[...] = tmp[_mirrored_parts[landmarks.shape[0]]]
+    return mirrored
 
 
-def mirror_bounding_box(bb, image_size):
-    assert isinstance(bb, mshape.PointDirectedGraph)
-    tmp = np.array([0, image_size]) - bb.points.astype(np.float32)
-    tmp[:, 0] = -tmp[:, 0]
-    return mshape.PointCloud(tmp).bounding_box()
+def mirror_bounding_box(bb, image_width):
+    """
+    Mirror bounding box along y-axis
+    :param bb: bounding box [[y_min, x_min],[y_max, x_max]]
+    :param image_width: width of the image, in pixels
+    :return: mirrored landmarks
+    """
+    mirrored = np.zeros_like(bb, bb.dtype)
+    mirrored[:, 0] = bb[:, 0]
+    mirrored[:, 1] = (image_width - bb[:, 1])[::-1, :]
+    return mirrored
 
 
-def mirror_image(image):
-    image = image.copy()
-    assert isinstance(image, mimage.Image)
-    image.pixels = image.pixels[..., ::-1].copy()
-
-    for group in image.landmarks:
-        if group == 'PTS':
-            image.landmarks[group] = mirror_landmarks(image.landmarks[group], image.width)
-        elif group == 'bb':
-            image.landmarks[group] = mirror_bounding_box(image.landmarks[group], image.width)
-    return image
+def mirror_image(image, landmark_group, bb):
+    mirrored_image = image[:, ::-1, :].copy()
+    landmark_group = landmark_group or []
+    mirrored_landmark_group = []
+    for landmarks in landmark_group:
+        mirrored_landmark_group.append(mirror_landmarks(landmarks, image.shape[1]))
+    mirrored_bb = mirror_bounding_box(bb, image.shape[1])
+    return mirrored_image, mirrored_landmark_group, mirrored_bb
 
 
 # =====Plot=====

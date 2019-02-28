@@ -1,10 +1,7 @@
+from utils.utils import *
 import matplotlib.pyplot as plt
-import menpo
 import random
-import sys
-sys.path.append('..')
 
-from utils import *
 
 # =====Norm index test=====
 print('Testing norm_idx() ...')
@@ -23,7 +20,9 @@ for _ in range(1000):
 print('Tested norm_idx()')
 
 # =====Mirror test=====
-test_image = menpo.io.import_image('../Dataset/300W/Outdoor/Images/outdoor_004.png')
+test_image = cv2.imread('../Dataset/300W/Outdoor/Images/outdoor_004.png')
+test_landmarks = np.load('../Dataset/300W/Outdoor/BoundingBoxes/outdoor_004.pts')
+print(test_landmarks)
 assert isinstance(test_image, mimage.Image)
 test_image.landmarks['bb'] = menpo.io.import_landmark_file(
     '../Dataset/300W/Outdoor/BoundingBoxes/outdoor_004.pts'
