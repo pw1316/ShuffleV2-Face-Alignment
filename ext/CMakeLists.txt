@@ -1,6 +1,5 @@
 cmake_minimum_required (VERSION 3.1)
 project(dde_bin_loader)
-set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR})
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --std=c++11")
 
 find_package (Python COMPONENTS Interpreter Development)
@@ -19,4 +18,4 @@ elseif(UNIX)
 set_target_properties(dde_bin_loader PROPERTIES PREFIX "")
 endif()
 
-install(TARGETS dde_bin_loader DESTINATION ${CMAKE_INSTALL_PREFIX})
+install(TARGETS dde_bin_loader DESTINATION ${CMAKE_SOURCE_DIR})
