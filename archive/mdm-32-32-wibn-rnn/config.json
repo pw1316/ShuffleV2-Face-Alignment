@@ -1,0 +1,19 @@
+{
+    "num_iterations": 5,
+    "num_patches": 73,
+    "patch_size": 30,
+    "MOVING_AVERAGE_DECAY": 0.9999,
+    "train_dataset": "Dataset/FW2/Images/*.png",
+    "eval_dataset": "Dataset/FW2/Images/*.png",
+    "train_dir": "ckpt/32-32-wibn-rnn",
+    "eval_dir": "ckpt/eval",
+    "train_device": "/gpu:0",
+    "eval_device": "/cpu:0",
+    "learning_rate": 0.001,
+    "learning_rate_step": 5000,
+    "learning_rate_decay": 0.6,
+    "batch_size": 30,
+    "max_steps": 100000,
+    "num_examples": 4135,
+    "use_mirror": false
+}
