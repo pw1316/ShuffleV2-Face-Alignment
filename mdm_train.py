@@ -1,7 +1,7 @@
 from datetime import datetime
 import menpo
 import menpo.io as mio
-from menpo.shape.pointcloud import PointCloud
+import menpo.shape as mshape
 import numpy as np
 import os
 from pathlib import Path
@@ -44,7 +44,7 @@ def train(scope=''):
             num_patches=g_config['num_patches'], verbose=True
         )
         path_base = Path(g_config['train_dataset'].split(':')[0]).parent.parent
-        _mean_shape = mio.import_pickle(path_base / 'reference_shape.pkl')
+        _mean_shape = mio.import_pickle(path_base / 'mean_shape.pkl')
         _mean_shape = data_provider.align_reference_shape_to_112(_mean_shape)
         assert(isinstance(_mean_shape, np.ndarray))
         assert(_mean_shape.shape[0] == g_config['num_patches'])
@@ -55,35 +55,7 @@ def train(scope=''):
 
         tf_mean_shape = tf.constant(_mean_shape, dtype=tf.float32, name='MeanShape')
 
-        def get_random_sample(image, shape, rotation_stddev=10):
-            # Read a random image with landmarks and bb
-            image = menpo.image.Image(image.transpose((2, 0, 1)), copy=False)
-            image.landmarks['PTS'] = PointCloud(shape)
-
-            if np.random.rand() < .5:
-                image = utils.mirror_image(image)
-            if np.random.rand() < .5:
-                theta = np.random.normal(scale=rotation_stddev)
-                rot = menpo.transform.rotate_ccw_about_centre(image.landmarks['PTS'], theta)
-                image = image.warp_to_shape(image.shape, rot)
-            bb = image.landmarks['PTS'].bounding_box().points
-            miny, minx = np.min(bb, 0)
-            maxy, maxx = np.max(bb, 0)
-            bbsize = max(maxx - minx, maxy - miny)
-            center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-            shift = (np.random.rand(2) - 0.5) / 6. * bbsize
-            image.landmarks['bb'] = PointCloud(
-                [
-                    [center[0] - bbsize * 0.5 + shift[0], center[1] - bbsize * 0.5 + shift[1]],
-                    [center[0] + bbsize * 0.5 + shift[0], center[1] + bbsize * 0.5 + shift[1]],
-                ]
-            ).bounding_box()
-            proportion = 1.0 / 6.0 + float(np.random.rand() - 0.5) / 10.0
-            image = image.crop_to_landmarks_proportion(proportion, group='bb')
-            image = image.resize((112, 112))
-            random_image = image.pixels.transpose(1, 2, 0).astype('float32')
-            random_shape = image.landmarks['PTS'].points.astype('float32')
-
+        def get_random_sample(image, shape):
             # Occlude
             _O_AREA = 0.15
             _O_MIN_H = 0.15
@@ -94,12 +66,11 @@ def train(scope=''):
                 dy = int(np.random.rand() * (112 - rh))
                 dx = int(np.random.rand() * (112 - rw))
                 idx = int(np.random.rand() * _num_negatives)
-                random_image[dy:dy+rh, dx:dx+rw] = np.minimum(
+                image[dy:dy+rh, dx:dx+rw] = np.minimum(
                     1.0,
                     _negatives[idx][dy:dy+rh, dx:dx+rw]
                 )
-
-            return random_image, random_shape
+            return image, shape
 
         def decode_feature_and_augment(serialized):
             feature = {
@@ -108,16 +79,16 @@ def train(scope=''):
             }
             features = tf.parse_single_example(serialized, features=feature)
             decoded_image = tf.decode_raw(features['train/image'], tf.float32)
-            decoded_image = tf.reshape(decoded_image, (336, 336, 3))
+            decoded_image = tf.reshape(decoded_image, (112, 112, 3))
             decoded_shape = tf.sparse.to_dense(features['train/shape'])
             decoded_shape = tf.reshape(decoded_shape, (g_config['num_patches'], 2))
 
-            random_image, random_shape = tf.py_func(
-                get_random_sample, [decoded_image, decoded_shape], [tf.float32, tf.float32],
-                stateful=True,
-                name='RandomSample'
-            )
-            return data_provider.distort_color(random_image), random_shape
+            #decoded_image, decoded_shape = tf.py_func(
+            #    get_random_sample, [decoded_image, decoded_shape], [tf.float32, tf.float32],
+            #    stateful=True,
+            #    name='RandomSample'
+            #)
+            return data_provider.distort_color(decoded_image), decoded_shape
 
         def decode_feature(serialized):
             feature = {
@@ -132,15 +103,21 @@ def train(scope=''):
             return decoded_image, decoded_shape
 
         with tf.name_scope('DataProvider'):
-            tf_dataset = tf.data.TFRecordDataset([str(path_base / 'train.bin')])
+            tf_dataset = tf.data.TFRecordDataset([
+                str(path_base / 'train_0.bin'),
+                str(path_base / 'train_1.bin'),
+                str(path_base / 'train_2.bin'),
+                str(path_base / 'train_3.bin')
+            ])
             tf_dataset = tf_dataset.repeat()
             tf_dataset = tf_dataset.map(decode_feature_and_augment, num_parallel_calls=5)
+            tf_dataset = tf_dataset.shuffle(480)
             tf_dataset = tf_dataset.batch(g_config['batch_size'], True)
             tf_dataset = tf_dataset.prefetch(1)
             tf_iterator = tf_dataset.make_one_shot_iterator()
             tf_images, tf_shapes = tf_iterator.get_next(name='Batch')
             tf_images.set_shape([g_config['batch_size'], 112, 112, 3])
-            tf_shapes.set_shape([g_config['batch_size'], 73, 2])
+            tf_shapes.set_shape([g_config['batch_size'], 75, 2])
 
             tf_dataset_v = tf.data.TFRecordDataset([str(path_base / 'validate.bin')])
             tf_dataset_v = tf_dataset_v.repeat()
@@ -150,7 +127,7 @@ def train(scope=''):
             tf_iterator_v = tf_dataset_v.make_one_shot_iterator()
             tf_images_v, tf_shapes_v = tf_iterator_v.get_next(name='ValidateBatch')
             tf_images_v.set_shape([50, 112, 112, 3])
-            tf_shapes_v.set_shape([50, 73, 2])
+            tf_shapes_v.set_shape([50, 75, 2])
 
         print('Defining model...')
         with tf.device(g_config['train_device']):

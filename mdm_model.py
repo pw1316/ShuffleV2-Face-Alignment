@@ -227,7 +227,8 @@ def _normalized_mean_error(pred, gt_truth, num_patches=73):
     return tf.reduce_mean(_batch_normalized_mean_error(pred, gt_truth, num_patches))
 
 
-_DEPTH_BASE = 232
+_INIT_DEPTH = 48
+_DEPTH_BASE = 96
 
 
 class MDMModel:
@@ -250,7 +251,7 @@ class MDMModel:
         with tf.variable_scope('Network', values=[self.in_mean_shape], reuse=tf.AUTO_REUSE):
             with tf.variable_scope('Initial'):
                 inputs = _conv2d(
-                    self.in_images, 128, [3, 3],
+                    self.in_images, _INIT_DEPTH, [3, 3],
                     activation=tf.nn.relu,
                     use_bias=False,
                     use_bn=True,
@@ -262,7 +263,7 @@ class MDMModel:
                     name='MaxPooling'
                 )
             inputs = _shuffle_block(
-                inputs, 128, self.depth, [3, 3], [2, 2], 4,
+                inputs, _INIT_DEPTH, self.depth, [3, 3], [2, 2], 4,
                 training=self.is_training,
                 name='ShuffleBlock1'
             )
@@ -293,10 +294,10 @@ class MDMModel:
                 )
             with tf.variable_scope('Predict'):
                 inputs = _conv2d(
-                    inputs, 146, [1, 1],
+                    inputs, 150, [1, 1],
                     name='Convolution'
                 )
-                inputs = tf.reshape(inputs, [-1, 73, 2])
+                inputs = tf.reshape(inputs, [-1, 75, 2])
                 self.prediction = inputs + self.in_mean_shape
             with tf.name_scope('BatchLoss'):
                 self.batch_ne = _batch_normalized_error(self.prediction, self.in_shapes)
@@ -305,7 +306,7 @@ class MDMModel:
                 self.nme = tf.reduce_mean(self.batch_nme)
             tf.summary.scalar('loss', self.nme, collections=['train' if self.is_training else 'validate'])
             self.out_images, = tf.py_func(
-                utils.batch_draw_landmarks_discrete,
+                utils.batch_draw_landmarks,
                 [self.in_images, self.in_shapes, self.prediction],
                 [tf.float32]
             )

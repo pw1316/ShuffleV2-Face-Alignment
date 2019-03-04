@@ -1,9 +1,9 @@
 {
-    "num_patches": 73,
+    "num_patches": 75,
     "MOVING_AVERAGE_DECAY": 0.9999,
-    "train_dataset": "Dataset/FW2Shuffle/Images/*.png",
-    "eval_dataset": "Dataset/FW2Shuffle/Images/*.png",
-    "train_dir": "ckpt/v0.0.2-occlude-15-norand",
+    "train_dataset": "Dataset/FW3/Images/*.png",
+    "eval_dataset": "Dataset/FW3/Images/*.png",
+    "train_dir": "ckpt/v0.0.4",
     "ckpt_dir": "",
     "eval_dir": "ckpt/eval",
     "train_device": "/gpu:0",
@@ -14,6 +14,6 @@
     "multiplier": 1.0,
     "batch_size": 30,
     "max_steps": 200000,
-    "num_examples": 4135,
+    "num_examples": 1969,
     "use_mirror": false
 }

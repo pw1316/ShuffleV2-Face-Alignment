@@ -1,5 +1,6 @@
-from menpo.shape.pointcloud import PointCloud
+import menpo.shape as mshape
 from menpofit.builder import compute_reference_shape
+import multiprocessing
 from pathlib import Path
 
 import menpo.feature
@@ -8,24 +9,20 @@ import menpo.io as mio
 import numpy as np
 import tensorflow as tf
 import random
+import time
+import utils
+import os
+import traceback
 
 
-def build_reference_shape(paths, num_patches=73, diagonal=200):
-    """Builds the reference shape.
-
-    Args:
-        paths: train image paths.
-        num_patches: number of landmarks
-        diagonal: the diagonal of the reference shape in pixels.
-    Returns:
-        the reference shape.
-    """
+def build_mean_shape(paths, num_patches):
     landmarks = []
     for path in paths:
-        group = mio.import_landmark_file(path.parent / (path.stem + '.pts'))
-        if group.n_points == num_patches:
-            landmarks += [group]
-    return compute_reference_shape(landmarks, diagonal=diagonal).points.astype(np.float32)
+        landmark_path = path.parent.parent / 'Fix3' / (path.stem + '.txt')
+        landmark = np.genfromtxt(landmark_path)[:, [1, 0]]
+        if landmark.shape[0] == num_patches:
+            landmarks += [mshape.PointCloud(landmark)]
+    return compute_reference_shape(landmarks, diagonal=None, verbose=True).points.astype(np.float32)
 
 
 def grey_to_rgb(im):
@@ -81,6 +78,8 @@ def align_reference_shape_to_112(reference_shape):
 
 def load_image(path, proportion, size):
     mp_image = mio.import_image(path)
+    landmark_path = path.parent.parent / 'Fix3' / (path.stem + '.txt')
+    mp_image.landmarks['PTS'] = mshape.PointCloud(np.genfromtxt(landmark_path)[:, [1, 0]])
     assert isinstance(mp_image, menpo.image.Image)
 
     miny, minx = np.min(mp_image.landmarks['PTS'].bounding_box().points, 0)
@@ -96,7 +95,7 @@ def load_image(path, proportion, size):
     pad_shape = mp_image.landmarks['PTS'].points + np.array([pady, padx])
 
     mp_image = menpo.image.Image(pad_image)
-    mp_image.landmarks['PTS'] = PointCloud(pad_shape)
+    mp_image.landmarks['PTS'] = mshape.PointCloud(pad_shape)
     assert isinstance(mp_image, menpo.image.Image)
 
     miny, minx = np.min(mp_image.landmarks['PTS'].bounding_box().points, 0)
@@ -104,7 +103,7 @@ def load_image(path, proportion, size):
     bbsize = max(maxx - minx, maxy - miny)
 
     center = [(miny + maxy) / 2., (minx + maxx) / 2.]
-    mp_image.landmarks['bb'] = PointCloud(
+    mp_image.landmarks['bb'] = mshape.PointCloud(
         [
             [center[0] - bbsize * 0.5, center[1] - bbsize * 0.5],
             [center[0] + bbsize * 0.5, center[1] + bbsize * 0.5],
@@ -122,8 +121,116 @@ def load_image(path, proportion, size):
     return mp_image
 
 
-def prepare_images(paths, num_patches=73, verbose=True):
-    """Save Train Images to TFRecord, for ShuffleNet
+def process_images(queue, i, augment, paths):
+    print('begin p{}'.format(i), os.getpid(), os.getppid())
+    cnt = 0
+    for path in paths:
+        mp_image = mio.import_image(path)
+        landmark_path = path.parent.parent / 'Fix3' / (path.stem + '.txt')
+        mp_image.landmarks['PTS'] = mshape.PointCloud(np.genfromtxt(landmark_path)[:, [1, 0]])
+        for j in range(augment):
+            try:
+                mp_image_i = mp_image.copy()
+                if j % 2 == 1:
+                    mp_image_i = utils.mirror_image(mp_image_i)
+                if np.random.rand() < .5:
+                    theta = np.random.normal(scale=20)
+                    rot = menpo.transform.rotate_ccw_about_centre(mp_image_i.landmarks['PTS'], theta)
+                    mp_image_i = mp_image_i.warp_to_shape(mp_image_i.shape, rot, warp_landmarks=True)
+
+                # Bounding box perturbation
+                bb = mp_image_i.landmarks['PTS'].bounding_box().points.astype(np.float32)
+                miny, minx = np.min(bb, 0)
+                maxy, maxx = np.max(bb, 0)
+                bbsize = max(maxx - minx, maxy - miny)
+                center = [(miny + maxy) / 2., (minx + maxx) / 2.]
+                shift = np.random.normal(0, 0.05, 2) * bbsize
+                proportion = (1.0 / 6.0 + float(np.random.normal(0, 0.15))) * bbsize
+                mp_image_i.landmarks['bb'] = mshape.PointCloud(
+                    [
+                        [
+                            center[0] - bbsize * 0.5 - proportion + shift[0],
+                            center[1] - bbsize * 0.5 - proportion + shift[1]
+                        ],
+                        [
+                            center[0] + bbsize * 0.5 + proportion + shift[0],
+                            center[1] + bbsize * 0.5 + proportion + shift[1]
+                        ],
+                    ]
+                ).bounding_box()
+
+                # Padding, Crop, Resize
+                pady = int(
+                    max(
+                        -min(center[0] - bbsize * 0.5 - proportion + shift[0], 0),
+                        max(center[0] + bbsize * 0.5 + proportion + shift[0] - mp_image_i.height, 0)
+                    )
+                ) + 100
+                padx = int(
+                    max(
+                        -min(center[1] - bbsize * 0.5 - proportion + shift[1], 0),
+                        max(center[1] + bbsize * 0.5 + proportion + shift[1] - mp_image_i.width, 0)
+                    )
+                ) + 100
+                c, h, w = mp_image_i.pixels.shape
+                pad_image = np.random.rand(c, h + pady + pady, w + padx + padx)
+                pad_image[:, pady: pady + h, padx: padx + w] = mp_image_i.pixels.astype(np.float32)
+                pad_shape = mp_image_i.landmarks['PTS'].points.astype(np.float32) + np.array([pady, padx])
+                pad_bb = mp_image_i.landmarks['bb'].points.astype(np.float32) + np.array([pady, padx])
+
+                mp_image_i = menpo.image.Image(pad_image)
+                mp_image_i.landmarks['PTS'] = mshape.PointCloud(pad_shape)
+                mp_image_i.landmarks['bb'] = mshape.PointCloud(pad_bb).bounding_box()
+                mp_image_i = mp_image_i.crop_to_landmarks_proportion(0, group='bb')
+                mp_image_i = mp_image_i.resize((112, 112))
+                mp_image_i = grey_to_rgb(mp_image_i)
+
+                image = mp_image_i.pixels.transpose(1, 2, 0).astype(np.float32)
+                shape = mp_image_i.landmarks['PTS'].points.astype(np.float32)
+            except Exception as e:
+                traceback.print_exc()
+                raise e
+            done = False
+            while not done:
+                try:
+                    queue.put_nowait((image, shape))
+                    done = True
+                except Exception:
+                    print('p{} wait'.format(i))
+                    traceback.print_exc()
+                    time.sleep(0.5)
+        cnt += 1
+        print('calc{} done {}/{}'.format(i, cnt, len(paths)))
+    print('end p{}'.format(i), len(paths))
+
+
+def write_images(queue, i, path_base, max_to_write):
+    print('begin r{}'.format(i), os.getpid(), os.getppid())
+    wrote = 0
+    with tf.io.TFRecordWriter(str(path_base / 'train_{}.bin'.format(i))) as ofs:
+        while wrote < max_to_write:
+            try:
+                img, lms = queue.get_nowait()
+                features = tf.train.Features(
+                    feature={
+                        'train/image': tf.train.Feature(
+                            bytes_list=tf.train.BytesList(value=[tf.compat.as_bytes(img.tostring())])
+                        ),
+                        'train/shape': tf.train.Feature(
+                            float_list=tf.train.FloatList(value=lms.flatten())
+                        )
+                    }
+                )
+                ofs.write(tf.train.Example(features=features).SerializeToString())
+                wrote += 1
+            except Exception:
+                print('r{} wait'.format(i))
+                time.sleep(0.5)
+    print('end r{}'.format(i), path_base)
+
+
+def prepare_images(paths, num_patches, verbose=True):
+    """Save Train/Test/Validate Images to TFRecord, for ShuffleNet
     Args:
         paths: a list of strings containing the data directories.
         num_patches: number of landmarks
@@ -131,6 +238,7 @@ def prepare_images(paths, num_patches=73, verbose=True):
     Returns:
         None
     """
+
     if len(paths) == 0:
         return
     # .../<Dataset>/Images/*.png -> .../<Dataset>
@@ -149,17 +257,11 @@ def prepare_images(paths, num_patches=73, verbose=True):
     else:
         for path in paths:
             for file in Path('.').glob(path):
-                try:
-                    mio.import_landmark_file(
-                        str(Path(file.parent.parent / 'BoundingBoxes' / (file.stem + '.pts')))
-                    )
-                except ValueError:
-                    continue
                 image_paths.append(file)
         print('Got all image paths...')
         random.shuffle(image_paths)
-        num_train = int(len(image_paths) * 0.7)
-        num_test = int(len(image_paths) * 0.2)
+        num_train = int(len(image_paths) * 0.9)
+        num_test = int(len(image_paths) * 0.09)
         train_paths = sorted(image_paths[:num_train])
         test_paths = sorted(image_paths[num_train:num_train+num_test])
         val_paths = sorted(image_paths[num_train+num_test:])
@@ -172,52 +274,56 @@ def prepare_images(paths, num_patches=73, verbose=True):
         print('Write Train/Test/Validate {}/{}/{}'.format(len(train_paths), len(test_paths), len(val_paths)))
 
     # Third: export reference shape on train
-    if Path(path_base / 'reference_shape.pkl').exists():
-        reference_shape = PointCloud(mio.import_pickle(path_base / 'reference_shape.pkl'))
+    if Path(path_base / 'mean_shape.pkl').exists():
+        mean_shape = mshape.PointCloud(mio.import_pickle(path_base / 'mean_shape.pkl'))
+        print('Imported mean_shape.pkl')
     else:
-        reference_shape = PointCloud(build_reference_shape(train_paths, num_patches))
-        mio.export_pickle(reference_shape.points, path_base / 'reference_shape.pkl', overwrite=True)
-    print('Created reference_shape.pkl')
+        mean_shape = mshape.PointCloud(build_mean_shape(train_paths, num_patches))
+        mio.export_pickle(mean_shape.points, path_base / 'mean_shape.pkl', overwrite=True)
+        print('Created mean_shape.pkl')
 
     # Fourth: image shape & pca
     # No need for ShuffleNet
 
     # Fifth: train data
-    if Path(path_base / 'train.bin').exists():
+    if Path(path_base / 'train_0.bin').exists():
         pass
     else:
+        print('preparing train data')
         random.shuffle(train_paths)
-        with tf.io.TFRecordWriter(str(path_base / 'train.bin')) as ofs:
-            print('Preparing train data...')
-            counter = 0
-            for path in train_paths:
-                counter += 1
-                if verbose:
-                    status = 10.0 * counter / len(train_paths)
-                    status_str = '\rPreparing {:2.2f}%['.format(status * 10)
-                    for i in range(int(status)):
-                        status_str += '='
-                    for i in range(int(status), 10):
-                        status_str += ' '
-                    status_str += '] {}     '.format(path)
-                    print(status_str, end='')
-                mp_image = load_image(path, 0.7, 336)
+        num_write = 4
+        num_process = num_write * 2
+        augment = 20
+        image_per_calc = int((len(train_paths) + num_process - 1) / num_process)
 
-                image = mp_image.pixels.transpose(1, 2, 0).astype(np.float32)
-                shape = mp_image.landmarks['PTS'].points
-                features = tf.train.Features(
-                    feature={
-                        'train/image': tf.train.Feature(
-                            bytes_list=tf.train.BytesList(value=[tf.compat.as_bytes(image.tostring())])
-                        ),
-                        'train/shape': tf.train.Feature(
-                            float_list=tf.train.FloatList(value=shape.flatten())
-                        )
-                    }
-                )
-                ofs.write(tf.train.Example(features=features).SerializeToString())
-            if verbose:
-                print('')
+        manager = multiprocessing.Manager()
+        message_queue = [manager.Queue(64) for _ in range(num_write)]
+        calc_pool = multiprocessing.Pool(num_process)
+        write_pool = multiprocessing.Pool(num_write)
+        for i in range(num_write):
+            train_paths_1 = train_paths[(i * 2) * image_per_calc: (i * 2 + 1) * image_per_calc]
+            train_paths_2 = train_paths[(i * 2 + 1) * image_per_calc: (i * 2 + 2) * image_per_calc]
+            calc_pool.apply_async(process_images, args=(
+                message_queue[i],
+                i * 2, augment,
+                train_paths_1,
+            ))
+            calc_pool.apply_async(process_images, args=(
+                message_queue[i],
+                i * 2 + 1, augment,
+                train_paths_2,
+            ))
+            write_pool.apply_async(write_images, args=(
+                message_queue[i],
+                i,
+                path_base,
+                (len(train_paths_1) + len(train_paths_2)) * augment,
+            ))
+        calc_pool.close()
+        write_pool.close()
+        calc_pool.join()
+        write_pool.join()
+    print('prepared train data')
 
     # Sixth: test data
     if Path(path_base / 'test.bin').exists():
@@ -239,11 +345,13 @@ def prepare_images(paths, num_patches=73, verbose=True):
                     print(status_str, end='')
 
                 mp_image = load_image(path, 1. / 6., 112)
-                mp_image.landmarks['init'] = PointCloud(align_reference_shape_to_112(reference_shape.points))
+                mp_image.landmarks['init'] = mshape.PointCloud(
+                    align_reference_shape_to_112(mean_shape.points.astype(np.float32))
+                )
 
                 image = mp_image.pixels.transpose(1, 2, 0).astype(np.float32)
-                shape = mp_image.landmarks['PTS'].points
-                init = mp_image.landmarks['init'].points
+                shape = mp_image.landmarks['PTS'].points.astype(np.float32)
+                init = mp_image.landmarks['init'].points.astype(np.float32)
                 features = tf.train.Features(
                     feature={
                         'test/image': tf.train.Feature(
@@ -285,7 +393,7 @@ def prepare_images(paths, num_patches=73, verbose=True):
                 mp_image = load_image(path, 1. / 6., 112)
 
                 image = mp_image.pixels.transpose(1, 2, 0).astype(np.float32)
-                shape = mp_image.landmarks['PTS'].points
+                shape = mp_image.landmarks['PTS'].points.astype(np.float32)
                 features = tf.train.Features(
                     feature={
                         'validate/image': tf.train.Feature(
